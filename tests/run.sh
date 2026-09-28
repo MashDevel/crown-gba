@@ -46,12 +46,11 @@ expect_bmp() {
     if [ "$actual" != "$expected" ]; then exit 1; fi
 }
 
-"$compiler" build "$project_root"
+"$compiler" run "$project_root" -- "$rom" --headless 0
 if [ "$host_os" = Darwin ]; then
     dyld_info -opcodes "$binary" | grep -q '_mach_absolute_time'
     if dyld_info -opcodes "$binary" | grep -q '_mach_continuous_time'; then exit 1; fi
 fi
-"$project_root/run.sh" "$rom" --headless 0
 "$compiler" build "$project_root/tests/validation"
 validation="$project_root/tests/validation/target/debug/gba_validation"
 "$validation" "$project_root/tests/fixtures/cpu_self_test.gba" cpu

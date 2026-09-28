@@ -24,16 +24,16 @@ sh bootstrap/fetch
 Then, in `gba`, build and play Circuit Breaker:
 
 ```sh
-./run.sh
+../lang/bootstrap/crown run . -- roms/circuit-breaker.gba
 ```
 
 Pass a cartridge path to play another game:
 
 ```sh
-./run.sh path/to/game.gba
+../lang/bootstrap/crown run . -- path/to/game.gba
 ```
 
-`run.sh` builds the project before launching it. Set `CROWN_COMPILER` to use a different Crown compiler executable. The manifest uses the Crown standard library from the sibling `lang` checkout. The executable is written to `target/debug/gba_crown`.
+`crown run` builds the project before launching it. The manifest uses the Crown standard library from the sibling `lang` checkout. The executable is written to `target/debug/gba_crown`.
 
 The macOS frontend presents a 240×160 framebuffer in a 720×480 window with nearest-neighbor scaling. The keyboard controls are arrows for the directional pad, Z for A, X for B, Backspace for Select, Return for Start, A for L, S for R, and Escape to quit. Save-backed cartridges write a `.sav` file beside the ROM when the window closes normally.
 
@@ -53,16 +53,16 @@ Only one execution mode may be selected. `--screenshot` writes the last frame as
 ## Test
 
 ```sh
-./check
+sh tests/run.sh --headless-only
 ```
 
-This runs the noninteractive build, CPU and frame fixtures, core tests, screenshot checks, and command-line error checks. On macOS it also verifies the Mach-O clock binding. On a logged-in macOS desktop, `./tests/run.sh` checks native Metal drawable memory. For manual playback QA, play Circuit Breaker for at least 30 seconds and check movement, sprites, sound, and normal window close. Repeat with another cartridge and confirm save persistence if it uses backup memory.
+This runs the noninteractive build, CPU and frame fixtures, core tests, screenshot checks, and command-line error checks. On macOS it also verifies the Mach-O clock binding. On a logged-in macOS desktop, `sh tests/run.sh` checks native Metal drawable memory. Crown's `check .` type-checks the emulator but does not run these checks; Crown's `test` command runs the compiler's own suite. For manual playback QA, play Circuit Breaker for at least 30 seconds and check movement, sprites, sound, and normal window close. Repeat with another cartridge and confirm save persistence if it uses backup memory.
 
 The ROM in `roms/` matches the build from the separate, original `projects/circuit-breaker` workspace project (SHA-256 `d27c606729141ca009bcfb51e37acc061775163c6c248342ee1acf3d582b0f57`). The small ROMs in `tests/fixtures` are generated from the adjacent assembly fixtures.
 
 ## Linux and Steam Deck
 
-On a supported x86-64 glibc Linux host with X11 and PipeWire, `./run.sh` uses the Linux frontend. The Steam Deck also reads its controller and left stick. Linux audio is resampled to 48 kHz and the frontend may skip video frames to recover from audio starvation.
+On a supported x86-64 glibc Linux host with X11 and PipeWire, `crown run` uses the Linux frontend. The Steam Deck also reads its controller and left stick. Linux audio is resampled to 48 kHz and the frontend may skip video frames to recover from audio starvation.
 
 To cross-compile Linux assembly on macOS and link it on the Deck:
 
