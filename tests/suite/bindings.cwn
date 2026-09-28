@@ -1,0 +1,31 @@
+module gba_tests {
+    fn run_bindings(context: write Context) -> Result<void, Text> {
+        if toolchain::host_target().platform != toolchain::Platform::Macos() {
+            return Ok(())
+        }
+        if selected(context, "binding_absolute") == false && selected(context, "binding_no_continuous") == false {
+            return Ok(())
+        }
+        var arguments = Vec<Text>.new()
+        arguments.push("/usr/bin/dyld_info")
+        arguments.push("-opcodes")
+        arguments.push(context.binary.clone())
+        let result = toolchain::capture(toolchain::command(move arguments), context.output)?
+        if result.status != 0 {
+            return Err(std::text::joined("could not inspect Mach-O bindings: ", std::text::joined(result.stdout, result.stderr)))
+        }
+        if selected(context, "binding_absolute") {
+            if std::text::contains(result.stdout, "_mach_absolute_time") == false {
+                return Err("missing mach_absolute_time binding")
+            }
+            context.checks = context.checks + 1
+        }
+        if selected(context, "binding_no_continuous") {
+            if std::text::contains(result.stdout, "_mach_continuous_time") {
+                return Err("unexpected mach_continuous_time binding")
+            }
+            context.checks = context.checks + 1
+        }
+        return Ok(())
+    }
+}

@@ -2,6 +2,8 @@
 
 A Game Boy Advance emulator written in [Crown](https://github.com/MashDevel/crown-lang). The emulator core, save handling, command line, and native frontends are implemented in Crown. macOS uses AppKit, Metal, and AVFAudio; Linux uses X11, PipeWire, and joystick input through the host's system libraries.
 
+`src/frontend/native` runs frames, maps controls, and coordinates playback. `src/platform` contains the macOS, Linux, and Bedrock system bindings used by that frontend.
+
 The included `roms/circuit-breaker.gba` is an original game, Circuit Breaker. No commercial game ROM or GBA BIOS is included. Bring your own legally obtained games and BIOS files.
 
 ## Set up
@@ -53,10 +55,10 @@ Only one execution mode may be selected. `--screenshot` writes the last frame as
 ## Test
 
 ```sh
-sh tests/run.sh --headless-only
+../lang/bootstrap/crown test . --filter headless
 ```
 
-This runs the noninteractive build, CPU and frame fixtures, core tests, screenshot checks, and command-line error checks. On macOS it also verifies the Mach-O clock binding. On a logged-in macOS desktop, `sh tests/run.sh` checks native Metal drawable memory. Crown's `check .` type-checks the emulator but does not run these checks; Crown's `test` command runs the compiler's own suite. For manual playback QA, play Circuit Breaker for at least 30 seconds and check movement, sprites, sound, and normal window close. Repeat with another cartridge and confirm save persistence if it uses backup memory.
+The project test suite builds the emulator, runs CPU and frame fixtures, checks screenshots and command-line failures, and verifies the macOS clock binding. On a logged-in macOS desktop, run `../lang/bootstrap/crown test .` to include the native Metal drawable memory check. Crown's `check .` type-checks the emulator; `test .` executes its project tests. For manual playback QA, play Circuit Breaker for at least 30 seconds and check movement, sprites, sound, and normal window close. Repeat with another cartridge and confirm save persistence if it uses backup memory.
 
 The ROM in `roms/` matches the build from the separate, original `projects/circuit-breaker` workspace project (SHA-256 `d27c606729141ca009bcfb51e37acc061775163c6c248342ee1acf3d582b0f57`). The small ROMs in `tests/fixtures` are generated from the adjacent assembly fixtures.
 

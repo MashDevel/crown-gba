@@ -1,0 +1,6 @@
+module gba_tests {
+    fn run_native(context: write Context) -> Result<void, Text> {
+        context;
+        return Ok(())
+    }
+}

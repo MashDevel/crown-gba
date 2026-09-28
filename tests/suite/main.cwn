@@ -1,0 +1,61 @@
+fn main(arguments: read Arguments) -> u32 {
+    match gba_tests::run(arguments) {
+        Ok(count) => {
+            toolchain::say(std::text::joined(std::text::decimal(u64.from(count)), " checks passed"))
+            return 0
+        }
+        Err(error) => {
+            toolchain::failure(error)
+            return 1
+        }
+    }
+}
+
+module gba_tests {
+    struct Context {
+        compiler: Text
+        root: Text
+        output: Text
+        filter: Text
+        coverage: Text
+        binary: Text
+        rom: Text
+        checks: usize
+    }
+
+    fn run(arguments: read Arguments) -> Result<usize, Text> {
+        if arguments.length() != 7 {
+            return Err("project test runner requires compiler, project, output, filter, coverage, and jobs")
+        }
+        var context = Context {
+            compiler: arguments[1].clone(), root: arguments[2].clone(), output: arguments[3].clone(),
+            filter: arguments[4].clone(), coverage: arguments[5].clone(),
+            binary: toolchain::path_join(arguments[2].clone(), "target/debug/gba_crown"),
+            rom: toolchain::path_join(arguments[2].clone(), "tests/fixtures/deterministic_game.gba"), checks: 0
+        }
+        toolchain::make_directory(context.output)?
+        build_project(context, context.root.clone(), "app")?
+        run_groups(context)?
+        if context.checks == 0 {
+            return Err("no project tests matched")
+        }
+        return Ok(context.checks)
+    }
+
+    fn run_groups(context: write Context) -> Result<void, Text> {
+        run_bindings(context)?
+        run_frontend(context)?
+        run_validation(context)?
+        run_core(context)?
+        run_cli(context)?
+        run_native(context)?
+        return Ok(())
+    }
+
+    fn selected(context: Context, name: TextView) -> bool {
+        if std::text::equal(context.filter, "headless") {
+            return std::text::equal(name, "native_memory") == false
+        }
+        return std::text::contains(name, context.filter)
+    }
+}

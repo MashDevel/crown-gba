@@ -1,0 +1,68 @@
+module gba_tests {
+    fn run_native(context: write Context) -> Result<void, Text> {
+        if selected(context, "native_memory") == false {
+            return Ok(())
+        }
+        var arguments = Vec<Text>.new()
+        arguments.push(context.binary.clone())
+        arguments.push(context.rom.clone())
+        var command = toolchain::command(move arguments)
+        command.stdout = toolchain::path_join(context.output, "native.stdout")
+        command.stderr = toolchain::path_join(context.output, "native.stderr")
+        let pid = toolchain::start_process(command)?
+        let started = toolchain::milliseconds()
+        var status = toolchain::process_status_slot()
+        while toolchain::milliseconds() - started < 3000 {
+            match toolchain::poll_process(pid, status)? {
+                Some(code) => {
+                    return Err(std::text::joined("native frontend exited: ", std::text::signed_decimal(i64.from(code))))
+                }
+                None => {
+                }
+            }
+            toolchain::wait_briefly()
+        }
+        let result = inspect_drawables(context, pid)
+        unsafe {
+            toolchain::terminate_process(pid, status)
+        }
+        let count = match move result {
+            Ok(value) => value
+            Err(error) => {
+                return Err(move error)
+            }
+        }
+        if count > 8 {
+            return Err("native frontend retained too many Metal drawables")
+        }
+        context.checks = context.checks + 1
+        return Ok(())
+    }
+
+    fn inspect_drawables(context: Context, pid: i32) -> Result<u64, Text> {
+        var arguments = Vec<Text>.new()
+        arguments.push("/usr/bin/heap")
+        arguments.push(std::text::signed_decimal(i64.from(pid)))
+        let result = toolchain::capture(toolchain::command(move arguments), context.output)?
+        if result.status != 0 {
+            return Err(std::text::joined("could not inspect native heap: ", std::text::joined(result.stdout, result.stderr)))
+        }
+        let lines = std::text::split(result.stdout, 10)
+        for index in 0..lines.length() {
+            if std::text::contains(lines[index], "CAMetalDrawable") {
+                return drawable_count(lines[index])
+            }
+        }
+        return Ok(0)
+    }
+
+    fn drawable_count(line: Text) -> Result<u64, Text> {
+        let fields = std::text::split(line, 32)
+        for index in 0..fields.length() {
+            if fields[index].length() != 0 {
+                return std::text::unsigned(fields[index])
+            }
+        }
+        return Err("invalid Metal drawable heap row")
+    }
+}

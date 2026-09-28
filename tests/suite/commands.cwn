@@ -1,0 +1,85 @@
+module gba_tests {
+    fn build_project(context: write Context, source: Text, name: Text) -> Result<void, Text> {
+        var arguments = Vec<Text>.new()
+        arguments.push(context.compiler.clone())
+        arguments.push("build")
+        arguments.push(source.clone())
+        if context.coverage.length() != 0 {
+            arguments.push("--coverage")
+            arguments.push(toolchain::path_join(context.coverage, name))
+        }
+        let result = toolchain::capture(toolchain::command(move arguments), context.output)?
+        if result.status != 0 {
+            return Err(std::text::joined(std::text::joined("could not build ", name), std::text::joined("\n", std::text::joined(result.stdout, result.stderr))))
+        }
+        return Ok(())
+    }
+
+    fn check_program(context: write Context, name: Text, binary: Text, expected: i32, encoded: Text) -> Result<void, Text> {
+        if selected(context, name) == false {
+            return Ok(())
+        }
+        return check_command(context, name, expected, program_arguments(context, binary, encoded))
+    }
+
+    fn program_arguments(context: read Context, binary: Text, encoded: Text) -> Vec<Text> {
+        var arguments = Vec<Text>.new()
+        arguments.push(binary.clone())
+        if encoded.length() != 0 {
+            let parts = std::text::split(encoded, 124)
+            for index in 0..parts.length() {
+                arguments.push(resolve(context, parts[index]))
+            }
+        }
+        return move arguments
+    }
+
+    fn check_command(context: write Context, name: Text, expected: i32, arguments: take Vec<Text>) -> Result<void, Text> {
+        expect_command(context, name, expected, move arguments)?
+        context.checks = context.checks + 1
+        return Ok(())
+    }
+
+    fn expect_command(context: read Context, name: Text, expected: i32, arguments: take Vec<Text>) -> Result<void, Text> {
+        let result = toolchain::capture(toolchain::command(move arguments), context.output)?
+        if result.status != expected {
+            let actual = std::text::signed_decimal(i64.from(result.status))
+            return Err(std::text::joined(std::text::joined(std::text::joined(name, " exited "), actual), std::text::joined("\n", std::text::joined(result.stdout, result.stderr))))
+        }
+        return Ok(())
+    }
+
+    fn resolve(context: read Context, value: Text) -> Text {
+        match read value {
+            "@root" => context.root.clone()
+            "@rom" => context.rom.clone()
+            "@cpu" => toolchain::path_join(context.root, "tests/fixtures/cpu_self_test.gba")
+            _ => resolve_output(context, value)
+        }
+    }
+
+    fn resolve_output(context: read Context, value: Text) -> Text {
+        match read value {
+            "@coverage_app" => toolchain::path_join(context.coverage, "app")
+            "@legacy" => toolchain::path_join(context.output, "legacy.bmp")
+            "@option" => toolchain::path_join(context.output, "option.bmp")
+            "@first" => toolchain::path_join(context.output, "first.bmp")
+            "@second" => toolchain::path_join(context.output, "second.bmp")
+            "@save" => toolchain::path_join(context.output, "save_test.gba")
+            "@missing_bios" => toolchain::path_join(context.output, "missing_bios.bin")
+            _ => value.clone()
+        }
+    }
+
+    fn check_bmp(context: write Context, name: Text, path: Text, expected: Text) -> Result<void, Text> {
+        if selected(context, name) == false {
+            return Ok(())
+        }
+        let bytes = toolchain::read_bytes(path)?
+        if bytes.length() != 115254 || std::text::equal(toolchain::digest(path)?, expected) == false {
+            return Err(std::text::joined("invalid screenshot: ", name))
+        }
+        context.checks = context.checks + 1
+        return Ok(())
+    }
+}

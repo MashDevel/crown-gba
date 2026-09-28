@@ -1,0 +1,65 @@
+module gba_tests {
+    fn run_frontend(context: write Context) -> Result<void, Text> {
+        run_frontend_execution(context)?
+        return run_frontend_screenshots(context)
+    }
+
+    fn run_frontend_execution(context: write Context) -> Result<void, Text> {
+        if context.coverage.length() == 0 {
+            check_program(context, "frontend_crown_run", context.compiler.clone(), 0, "run|@root|--|@rom|--headless|0")?
+        } else {
+            check_program(context, "frontend_crown_run", context.compiler.clone(), 0, "run|@root|--coverage|@coverage_app|--|@rom|--headless|0")?
+        }
+        check_program(context, "frontend_headless_zero", context.binary.clone(), 0, "@rom|--headless|0")?
+        check_program(context, "frontend_steps_zero", context.binary.clone(), 0, "@rom|--steps|0")?
+        check_program(context, "frontend_bios_first", context.binary.clone(), 0, "@rom|@rom|--steps|0")?
+        check_program(context, "frontend_bios_last", context.binary.clone(), 0, "@rom|--steps|0|@rom")?
+        return Ok(())
+    }
+
+    fn run_frontend_screenshots(context: write Context) -> Result<void, Text> {
+        check_program(context, "frontend_legacy_screenshot", context.binary.clone(), 0, "@rom|screenshot|@legacy")?
+        check_program(context, "frontend_option_screenshot", context.binary.clone(), 0, "@rom|--headless|0|--screenshot|@option")?
+        prepare_bmp(context, "frontend_legacy_bmp", "frontend_legacy_screenshot", "@rom|screenshot|@legacy")?
+        prepare_bmp(context, "frontend_option_bmp", "frontend_option_screenshot", "@rom|--headless|0|--screenshot|@option")?
+        check_bmp(context, "frontend_legacy_bmp", toolchain::path_join(context.output, "legacy.bmp"), "0ad97684bb9e6098a5b6d71e4840931fb28278b47e82f8f91ee0792a96a0d779")?
+        check_bmp(context, "frontend_option_bmp", toolchain::path_join(context.output, "option.bmp"), "836b26454702a2499f3c4b4bba3c564fb910a3c653f27d7276bc1a3639be73d1")?
+        return Ok(())
+    }
+
+    fn prepare_bmp(context: read Context, name: Text, source: Text, encoded: Text) -> Result<void, Text> {
+        if selected(context, name) && selected(context, source) == false {
+            return expect_command(context, name, 0, program_arguments(context, context.binary.clone(), encoded))
+        }
+        return Ok(())
+    }
+
+    fn run_validation(context: write Context) -> Result<void, Text> {
+        let root = toolchain::path_join(context.root, "tests/validation")
+        build_project(context, root, "validation")?
+        let binary = toolchain::path_join(root, "target/debug/gba_validation")
+        check_program(context, "validation_cpu", binary.clone(), 0, "@cpu|cpu")?
+        check_program(context, "validation_frames", binary, 0, "@rom|frames")?
+        return Ok(())
+    }
+
+    fn run_core(context: write Context) -> Result<void, Text> {
+        let root = toolchain::path_join(context.root, "tests/core")
+        build_project(context, root, "core")?
+        let binary = toolchain::path_join(root, "target/debug/gba_crown_core_tests")
+        return check_program(context, "core_unit_tests", binary, 0, "@cpu|@save")
+    }
+
+    fn run_cli(context: write Context) -> Result<void, Text> {
+        check_program(context, "cli_missing_rom", context.binary.clone(), 2, "")?
+        check_program(context, "cli_missing_frames", context.binary.clone(), 3, "@rom|--headless")?
+        check_program(context, "cli_invalid_frames", context.binary.clone(), 5, "@rom|--headless|invalid")?
+        check_program(context, "cli_overflow_steps", context.binary.clone(), 5, "@rom|--steps|18446744073709551616")?
+        check_program(context, "cli_unknown_option", context.binary.clone(), 4, "@rom|--unknown")?
+        check_program(context, "cli_conflicting_modes", context.binary.clone(), 4, "@rom|--steps|0|--headless|0")?
+        check_program(context, "cli_missing_screenshot", context.binary.clone(), 3, "@rom|--screenshot")?
+        check_program(context, "cli_duplicate_screenshot", context.binary.clone(), 4, "@rom|--screenshot|@first|--screenshot|@second")?
+        check_program(context, "cli_missing_bios", context.binary.clone(), 20, "@rom|@missing_bios|--steps|0")?
+        return Ok(())
+    }
+}
