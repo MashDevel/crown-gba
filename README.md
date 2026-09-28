@@ -2,6 +2,8 @@
 
 A Game Boy Advance emulator written in [Crown](https://github.com/MashDevel/crown-lang). The emulator core, save handling, command line, and native frontends are implemented in Crown. macOS uses AppKit, Metal, and AVFAudio; Linux uses X11, PipeWire, and joystick input through the host's system libraries.
 
+![Crown GBA emulator running a game](screenshot.png)
+
 `src/frontend/playback` runs frames, maps controls, and coordinates playback. `src/platform` contains the macOS, Linux, and Bedrock system bindings used by that frontend.
 
 The included `roms/circuit-breaker.gba` is an original game, Circuit Breaker. No commercial game ROM or GBA BIOS is included. Bring your own legally obtained games and BIOS files.
