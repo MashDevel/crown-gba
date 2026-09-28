@@ -1,0 +1,84 @@
+name: Test
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 4 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  quality:
+    name: ${{ matrix.host }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: x86_64-linux
+            runner: ubuntu-24.04
+          - host: x86_64-macos
+            runner: macos-15-intel
+          - host: arm64-macos
+            runner: macos-15
+    defaults:
+      run:
+        shell: bash
+        working-directory: gba
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: gba
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: MashDevel/crown-lang
+          ref: 3345dc0e998db6e4af0901190a24d9ce415721bb
+          path: lang
+          persist-credentials: false
+      - name: Bootstrap pinned Crown compiler
+        id: bootstrap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p target/ci
+          sh ../lang/bootstrap/fetch
+          ../lang/bootstrap/crown --version
+          echo "$GITHUB_WORKSPACE/lang/target/bootstrap" >> "$GITHUB_PATH"
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: crown fmt src tests --check
+      - name: Type and structural checks for every project
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: |
+          status=0
+          for project in . tests tests/core tests/validation; do
+            name=${project//\//-}
+            crown lint "$project" --output "target/ci/metrics-$name.json" || status=1
+          done
+          exit "$status"
+      - name: Check duplication across the checked-out workspace
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: crown duplication .. --output target/ci/duplication.json
+      - name: Run functional tests with coverage
+        id: tests
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: crown test . --filter headless --output target/ci/tests --coverage target/ci/coverage
+      - name: Require 95% line and branch coverage per package
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' && steps.tests.outcome != 'skipped' }}
+        run: crown coverage target/ci/coverage --output target/ci/coverage.json
+      - name: Upload quality reports and test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reports-${{ matrix.host }}
+          path: |
+            gba/target/ci/*.json
+            gba/target/ci/tests/**
+          if-no-files-found: error
+          retention-days: 14

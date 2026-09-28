@@ -1,3 +1,6 @@
 [package]
 name = "gba_crown_tests"
-sources = ["suite", "../../lang/components/toolchain/src", "../../lang/components/library/src"]
+source = "suite"
+
+[toolchain]
+libraries = ["toolchain"]
