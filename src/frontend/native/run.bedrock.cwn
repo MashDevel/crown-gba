@@ -1,0 +1,74 @@
+module app {
+    struct BedrockFrontend {
+        window: platform::BedrockWindow, audio: platform::BedrockAudio,
+        input: platform::BedrockInput, start: u64, frequency: u64, frames: u64
+    }
+
+    fn run_native_frontend(emulator: take emulator::State) -> Option<Result> {
+        var machine = move emulator
+        let code = run_bedrock(machine)
+        return Some(Result {
+                emulator: move machine, code: code
+            })
+    }
+
+    fn run_bedrock(machine: write emulator::State) -> u32 {
+        let window = match platform::open_bedrock_window() {
+            Ok(value) => move value
+            Err(code) => {
+                return code
+            }
+        }
+        var frontend = BedrockFrontend {
+            window: move window, audio: platform::bedrock_audio(), input: platform::bedrock_input(),
+            start: 0, frequency: 0, frames: 0
+        }
+        unsafe {
+            frontend.start = platform::bedrock_ticks()
+            frontend.frequency = platform::bedrock_frequency()
+        }
+        if frontend.frequency == 0 {
+            return 83
+        }
+        while frontend.input.running {
+            platform::poll_bedrock(frontend.input)
+            keypad::set_pressed(machine.memory, frontend.input.pressed)
+            if bedrock_frame_ready(frontend) {
+                let result = bedrock_frame(machine, frontend)
+                if result != 0 {
+                    return result
+                }
+            } else {
+                unsafe {
+                    platform::bedrock_sleep(1)
+                }
+            }
+        }
+        return 0
+    }
+
+    fn bedrock_frame_ready(frontend: BedrockFrontend) -> bool {
+        unsafe {
+            if frontend.audio.available {
+                return platform::bedrock_audio_queued() < 2048
+            }
+            let deadline = frontend.start + frontend.frames * u64.from(video::CYCLES_PER_FRAME) * frontend.frequency / video::CLOCK_HZ
+            return platform::bedrock_ticks() >= deadline
+        }
+    }
+
+    fn bedrock_frame(machine: write emulator::State, frontend: write BedrockFrontend) -> u32 {
+        let result = emulator::run_frame_with_video(machine, true)
+        if result != 0 {
+            return result
+        }
+        let rate = u32.from(video::CLOCK_HZ / audio::sample_cycles(machine.audio))
+        let audio_result = platform::submit_bedrock_audio(frontend.audio, machine.audio.samples, rate)
+        audio::clear_samples(machine.audio)
+        if audio_result != 0 {
+            return audio_result
+        }
+        frontend.frames = frontend.frames + 1
+        return platform::present_bedrock(frontend.window, machine.ppu.framebuffer)
+    }
+}

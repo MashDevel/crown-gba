@@ -1,0 +1,43 @@
+fn test_fifo_halfword_bytes(fifo: audio::Fifo, value: u16) -> bool {
+    if fifo.length != 2 {
+        return false
+    }
+    if u8.from_bits(fifo.queued[0]) != u8.from(value & 255) {
+        return false
+    }
+    u8.from_bits(fifo.queued[1]) == u8.from(value >> 8)
+}
+
+fn test_fifo_halfword(audio: write audio::State, offset: usize, value: u16) -> bool {
+    audio::fifo_reset_queue(audio.fifo_a)
+    audio::fifo_reset_queue(audio.fifo_b)
+    audio::write16(audio, offset, value)
+    if offset < 164 {
+        return test_fifo_halfword_bytes(audio.fifo_a, value)
+    }
+    test_fifo_halfword_bytes(audio.fifo_b, value)
+}
+
+fn test_audio_fifo_halfwords() -> u32 {
+    var audio = audio::new()
+    let values: [u16; 6] = [0, 255, 256, 4660, 32768, 65535]
+    var offset: usize = 160
+    while offset <= 166 {
+        var index: usize = 0
+        while index < 6 {
+            if test_fifo_halfword(audio, offset, values[index]) == false {
+                return 192
+            }
+            index = index + 1
+        }
+        offset = offset + 2
+    }
+    audio::fifo_reset_queue(audio.fifo_a)
+    audio::fifo_reset_queue(audio.fifo_b)
+    audio::write16(audio, 159, 65535)
+    audio::write16(audio, 168, 65535)
+    if audio.fifo_a.length != 0 || audio.fifo_b.length != 0 {
+        return 193
+    }
+    0
+}

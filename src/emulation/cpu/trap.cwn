@@ -1,0 +1,15 @@
+module cpu {
+    fn execute_swi(emulator: write emulator::State, opcode: u32) -> u32 {
+        if emulator.memory.bios_loaded {
+            enter_swi(emulator.cpu)
+        } else {
+            bios::handle_swi(emulator, opcode & 255)
+        }
+        4
+    }
+
+    fn unknown_instruction(emulator: write emulator::State) -> u32 {
+        emulator.unknown_instructions = emulator.unknown_instructions + 1
+        1
+    }
+}

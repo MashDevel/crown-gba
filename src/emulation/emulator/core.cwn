@@ -1,0 +1,143 @@
+module emulator {
+    struct State {
+        cartridge: cartridge::Image
+        memory: memory::State
+        cpu: cpu::State
+        devices: devices::State
+        ppu: video::State
+        audio: audio::State
+        instructions: u64
+        cycles: u64
+        last_open_bus: u32
+        access_penalty_cycles: u32
+        next_gamepak_seq_addr: u32
+        next_gamepak_seq_width: u32
+        gamepak_seq_valid: bool
+        bus_charging: bool
+        dma_cycles_pending: u32
+        unknown_instructions: u32
+        unsupported_swi: u32
+    }
+
+    fn new(cartridge: take cartridge::Image) -> State {
+        let save_kind = cartridge::save_kind(cartridge)
+        var memory = memory::new()
+        memory.save_kind = save_kind
+        bios::initialize_direct_boot(memory)
+        if save_kind != backup::Kind::Absent() {
+            backup::clear_vector_to(memory.backup, 255)
+        }
+        return State {
+            cartridge: move cartridge
+            memory: move memory
+            cpu: cpu::new()
+            devices: devices::new()
+            ppu: video::new()
+            audio: audio::new()
+            instructions: 0
+            cycles: 0
+            last_open_bus: 0
+            access_penalty_cycles: 0
+            next_gamepak_seq_addr: 0
+            next_gamepak_seq_width: 0
+            gamepak_seq_valid: false
+            bus_charging: false
+            dma_cycles_pending: 0
+            unknown_instructions: 0
+            unsupported_swi: 0
+        }
+    }
+
+    fn step(emulator: write State) -> u32 {
+        bios::resume_intr_wait(emulator)
+        if emulator.devices.in_hle_irq {
+            if emulator.cpu.registers[cpu::PC] == memory::WORD_ADDRESS_MASK {
+                devices::finish_irq(emulator)
+                let elapsed = devices::step(emulator, 14)
+                emulator.cycles = emulator.cycles.wrapping_add(u64.from(elapsed))
+                return elapsed
+            }
+        }
+        if emulator.cpu.halted {
+            let elapsed = devices::step_halted(emulator)
+            emulator.cycles = emulator.cycles.wrapping_add(u64.from(elapsed))
+            return elapsed
+        }
+        if devices::interrupt_pending(emulator) {
+            if cpu::flag(emulator.cpu, cpu::IRQ_DISABLE) == false {
+                let irq_cycles = devices::enter_irq(emulator)
+                let elapsed = devices::step(emulator, irq_cycles)
+                emulator.cycles = emulator.cycles.wrapping_add(u64.from(elapsed))
+                return elapsed
+            }
+        }
+        let address = emulator.cpu.registers[cpu::PC]
+        emulator.access_penalty_cycles = 0
+        emulator.bus_charging = true
+        var cycles: u32 = 0
+        if cpu::thumb(emulator.cpu) {
+            let opcode = u32.from(bus::fetch16(emulator, address))
+            emulator.cpu.registers[cpu::PC] = address.wrapping_add(2)
+            cycles = cpu::thumb::execute_thumb(emulator, opcode)
+        } else {
+            let opcode = bus::fetch32(emulator, address)
+            emulator.cpu.registers[cpu::PC] = address.wrapping_add(4)
+            cycles = cpu::arm::execute_arm(emulator, opcode)
+        }
+        emulator.bus_charging = false
+        cycles = cycles + emulator.access_penalty_cycles
+        emulator.instructions = emulator.instructions.wrapping_add(1)
+        let elapsed = devices::step(emulator, cycles)
+        emulator.cycles = emulator.cycles.wrapping_add(u64.from(elapsed))
+        return elapsed
+    }
+
+    fn run_frames(emulator: write State, count: u64) -> u32 {
+        let target = emulator.devices.frames.wrapping_add(count)
+        while emulator.devices.frames < target {
+            run_audio_frame(emulator)
+        }
+        return 0
+    }
+
+    fn run_audio_frame(emulator: write State) -> void {
+        let target = emulator.devices.frames.wrapping_add(1)
+        audio::clear_samples(emulator.audio)
+        while emulator.devices.frames < target {
+            run_until_poll(emulator, target)
+            if emulator.devices.frames < target {
+                skip_poll_loop(emulator)
+            }
+        }
+    }
+
+    fn run_until_poll(emulator: write State, target: u64) -> void {
+        while emulator.devices.frames < target {
+            step(emulator)
+            if emulator.last_open_bus & POLL_BRANCH_MASK == POLL_BRANCH_BACK {
+                return
+            }
+        }
+        return
+    }
+
+    fn run_frame_with_video(emulator: write State, render_video: bool) -> u32 {
+        emulator.ppu.rendering_enabled = render_video
+        return run_frames(emulator, 1)
+    }
+
+    fn run_steps(emulator: write State, count: u64) -> u32 {
+        var steps: u64 = 0
+        var frame = emulator.devices.frames
+        while steps < count {
+            if emulator.devices.frames != frame {
+                audio::clear_samples(emulator.audio)
+                frame = emulator.devices.frames
+            }
+            step(emulator)
+            steps = steps.wrapping_add(1)
+        }
+        return 0
+    }
+
+}

@@ -1,0 +1,282 @@
+fn test_layer_order() -> u32 {
+    var ppu = video::new()
+    ppu.priorities[0] = 4
+    ppu.orders[0] = 5
+    ppu.window_layers[0] = 31
+    let lower = video::LayerPixel {
+        visible: true, color: 255, priority: 1, order: 2, layer: 1, semi: false
+    }
+    let upper = video::LayerPixel {
+        visible: true, color: 16711680, priority: 1, order: 1, layer: 0, semi: false
+    }
+    let hidden = video::LayerPixel {
+        visible: true, color: 65280, priority: 1, order: 3, layer: 2, semi: false
+    }
+    let position = video::PixelPosition {
+        index: 0, x: 0
+    }
+    video::commit_pixel(ppu, position, lower)
+    video::commit_pixel(ppu, position, upper)
+    video::commit_pixel(ppu, position, hidden)
+    if ppu.framebuffer[0] != 16711680 {
+        return 16
+    }
+    if ppu.second_colors[0] != 255 {
+        return 48
+    }
+    ppu = video::new()
+    ppu.priorities[0] = 4
+    ppu.orders[0] = 5
+    ppu.window_layers[0] = 31
+    let first_object = video::LayerPixel {
+        visible: true, color: 255, priority: 2, order: 0, layer: 4, semi: false
+    }
+    let later_object = video::LayerPixel {
+        visible: true, color: 65280, priority: 0, order: 0, layer: 4, semi: false
+    }
+    video::commit_pixel(ppu, position, first_object)
+    video::commit_pixel(ppu, position, later_object)
+    if ppu.framebuffer[0] != 255 {
+        return 341
+    }
+    return 0
+}
+
+fn test_affine_background(emulator: write emulator::State) -> u32 {
+    emulator.ppu = video::new()
+    memory::io_store16(emulator.memory, 0, 1026)
+    memory::io_store16(emulator.memory, 2, 0)
+    memory::io_store16(emulator.memory, 12, 256)
+    memory::io_store16(emulator.memory, 32, 256)
+    memory::io_store16(emulator.memory, 34, 0)
+    memory::io_store16(emulator.memory, 36, 0)
+    memory::io_store16(emulator.memory, 38, 256)
+    memory::io_store32(emulator.memory, 40, 0)
+    memory::io_store32(emulator.memory, 44, 0)
+    emulator.memory.vram[2048] = 1
+    emulator.memory.vram[64] = 1
+    memory::write16(emulator.memory, 83886082, 31)
+    emulator.devices.vcount = 0
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[0] != 16711680 {
+        return 17
+    }
+    return 0
+}
+
+fn test_bitmap_affine(emulator: write emulator::State) -> u32 {
+    emulator.ppu = video::new()
+    emulator.devices.vcount = 0
+    memory::io_store16(emulator.memory, 0, 1027)
+    memory::io_store16(emulator.memory, 2, 0)
+    memory::io_store16(emulator.memory, 12, 0)
+    memory::io_store16(emulator.memory, 32, 256)
+    memory::io_store16(emulator.memory, 34, 0)
+    memory::io_store16(emulator.memory, 36, 0)
+    memory::io_store16(emulator.memory, 38, 256)
+    memory::io_store32(emulator.memory, 40, 256)
+    memory::io_store32(emulator.memory, 44, 0)
+    emulator.memory.vram[2] = 224
+    emulator.memory.vram[3] = 3
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[0] != 65280 {
+        return 18
+    }
+    memory::io_store32(emulator.memory, 40, 268435200)
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[0] != 0 {
+        return 19
+    }
+    memory::io_store16(emulator.memory, 34, 256)
+    memory::io_store16(emulator.memory, 38, 0)
+    memory::write32(emulator.memory, 67108904, 0)
+    memory::write32(emulator.memory, 67108908, 0)
+    emulator.memory.vram[0] = 31
+    emulator.memory.vram[1] = 0
+    emulator.memory.vram[2] = 224
+    emulator.memory.vram[3] = 3
+    emulator.devices.vcount = 1
+    memory::io_store16(emulator.memory, 6, 1)
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[240] != 16711680 {
+        return 342
+    }
+    emulator.devices.vcount = 0
+    memory::io_store16(emulator.memory, 6, 0)
+    return 0
+}
+
+fn test_ppu_controls(emulator: write emulator::State) -> u32 {
+    memory::io_store16(emulator.memory, 0, 128)
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[0] != 16777215 {
+        return 21
+    }
+    emulator.ppu.framebuffer[0] = 1122867
+    emulator.ppu.framebuffer[1] = 4478310
+    video::green_swap(emulator.ppu, 0)
+    if emulator.ppu.framebuffer[0] != 1135923 {
+        return 22
+    }
+    if emulator.ppu.framebuffer[1] != 4465254 {
+        return 23
+    }
+    memory::io_store16(emulator.memory, 8, 320)
+    memory::io_store16(emulator.memory, 16, 0)
+    memory::io_store16(emulator.memory, 18, 0)
+    memory::io_store16(emulator.memory, 76, 1)
+    emulator.memory.vram[2048] = 0
+    emulator.memory.vram[2049] = 0
+    emulator.memory.vram[0] = 33
+    memory::write16(emulator.memory, 83886084, 31)
+    var text_line = video::text_line(emulator.memory, 0, 0)
+    let pixel = video::text_pixel(emulator.memory, text_line, 1)
+    if pixel.color != 16711680 {
+        return 24
+    }
+    emulator.memory.vram[2048] = 0
+    emulator.memory.vram[2049] = 16
+    emulator.memory.vram[0] = 0
+    memory::write16(emulator.memory, 83886112, 992)
+    var transparent_line = video::text_line(emulator.memory, 0, 0)
+    let transparent = video::text_pixel(emulator.memory, transparent_line, 0)
+    if transparent.visible {
+        return 343
+    }
+    return 0
+}
+
+fn test_ppu_effects() -> u32 {
+    if video::alpha_color(16711680, 255, 2056) != 8061051 {
+        return 49
+    }
+    if video::brightness_color(0, 8, true) != 8092539 {
+        return 50
+    }
+    if video::brightness_color(16777215, 8, false) != 8618883 {
+        return 51
+    }
+    return 0
+}
+
+fn test_ppu_render_suppression(emulator: write emulator::State) -> u32 {
+    emulator.ppu = video::new()
+    emulator.devices.vcount = 0
+    emulator.ppu.framebuffer[0] = 1122867
+    emulator.ppu.rendering_enabled = false
+    memory::io_store16(emulator.memory, 0, 0)
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[0] != 1122867 {
+        return 366
+    }
+    emulator.ppu.rendering_enabled = true
+    video::render_line(emulator)
+    if emulator.ppu.framebuffer[0] == 1122867 {
+        return 367
+    }
+    return 0
+}
+
+fn test_ppu_windows(emulator: write emulator::State) -> u32 {
+    emulator.ppu = video::new()
+    memory::io_store16(emulator.memory, 64, 2580)
+    memory::io_store16(emulator.memory, 68, 160)
+    memory::io_store16(emulator.memory, 72, 1)
+    memory::io_store16(emulator.memory, 74, 12322)
+    video::prepare_windows(emulator, 0, 8192)
+    if emulator.ppu.window_layers[15] != 1 {
+        return 52
+    }
+    if emulator.ppu.window_effects[15] != 0 {
+        return 53
+    }
+    if emulator.ppu.window_layers[5] != 2 {
+        return 54
+    }
+    if emulator.ppu.window_effects[5] != 1 {
+        return 55
+    }
+    video::apply_object_window(emulator, 5)
+    if emulator.ppu.window_layers[5] != 16 {
+        return 56
+    }
+    if emulator.ppu.window_effects[5] != 1 {
+        return 57
+    }
+    video::apply_object_window(emulator, 15)
+    if emulator.ppu.window_layers[15] != 1 {
+        return 58
+    }
+    emulator.ppu = video::new()
+    memory::io_store16(emulator.memory, 74, 1025)
+    emulator.memory.oam[0] = 0
+    emulator.memory.oam[1] = 8
+    emulator.memory.vram[65536] = 1
+    video::prepare_windows(emulator, 0, 32768)
+    video::render_object_windows(emulator, 0, 32768)
+    if emulator.ppu.window_layers[0] != 1 {
+        return 344
+    }
+    video::render_object_windows(emulator, 0, 36864)
+    if emulator.ppu.window_layers[0] != 4 {
+        return 345
+    }
+    return test_window_scanlines(emulator)
+}
+
+fn test_object_affine() -> u32 {
+    var memory = memory::new()
+    memory.oam[1] = 1
+    memory.oam[6] = 0
+    memory.oam[7] = 1
+    memory.oam[30] = 0
+    memory.oam[31] = 1
+    memory.vram[65536] = 1
+    memory::write16(memory, 83886594, 31)
+    let point = video::ObjectPoint {
+        object: 0, line: 0, x: 1
+    }
+    let sample = video::ObjectSample {
+        point: move point, control: 4096, size: [8, 8], render_size: [8, 8]
+    }
+    let pixel = video::object_pixel(memory, sample)
+    if pixel.visible == false {
+        return 59
+    }
+    if pixel.color != 16711680 {
+        return 60
+    }
+    return 0
+}
+
+fn test_object_budget() -> u32 {
+    var memory = memory::new()
+    if video::object_budget_limit(memory, 0, 4096) != 128 {
+        return 157
+    }
+    if video::object_budget_limit(memory, 0, 4128) != 119 {
+        return 158
+    }
+    memory.oam[0] = 0
+    memory.oam[1] = 2
+    if video::object_budget_limit(memory, 0, 4128) != 120 {
+        return 159
+    }
+    memory.oam[1] = 0
+    var visible = video::object_budget(0, 4096)
+    if video::object_charge(memory, visible, 0) == false {
+        return 160
+    }
+    if visible.render == false {
+        return 161
+    }
+    memory.oam[1] = 8
+    var window = video::object_budget(0, 4096)
+    if video::object_charge(memory, window, 0) == false {
+        return 162
+    }
+    if window.render {
+        return 163
+    }
+    return 0
+}

@@ -1,0 +1,22 @@
+module bytes {
+    fn join_u16(low: u8, high: u8) -> u16 {
+        return u16.from(low) | u16.from(high) << 8
+    }
+
+    fn low_u8(value: u32) -> u8 {
+        return u8.from(value & 255)
+    }
+
+    fn high_u8(value: u32, shift: u32) -> u8 {
+        return u8.from(value >> shift & 255)
+    }
+
+    fn clear_vector(bytes: write Vec<u8>) -> void {
+        var index: usize = 0
+        while index < bytes.length() {
+            bytes[index] = 0
+            index = index + 1
+        }
+        return
+    }
+}

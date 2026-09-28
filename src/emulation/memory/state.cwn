@@ -1,0 +1,91 @@
+module memory {
+    struct State {
+        bios: Vec<u8>
+        bios_loaded: bool
+        ewram: Vec<u8>
+        iwram: Vec<u8>
+        io: Vec<u8>
+        palette: Vec<u8>
+        palette_colors: Vec<u32>
+        vram: Vec<u8>
+        oam: Vec<u8>
+        timer_reload: [u16; 4]
+        timer_counter: [u16; 4]
+        timer_control: [u16; 4]
+        timer_cycles: [u32; 4]
+        timer_shifts: [u32; 4]
+        timer_masks: [u32; 4]
+        timer_next_cycles: u64
+        timer_direct: u8
+        timer_cascade: u8
+        gamepak_wait_first: [u32; 3]
+        gamepak_wait_second: [u32; 3]
+        backup_wait: u32
+        backup: Vec<u8>
+        save_kind: backup::Kind
+        flash_state: backup::FlashState
+        flash_bank: usize
+        flash_id: bool
+        eeprom_command: Vec<u8>
+        eeprom_read: Vec<u8>
+        eeprom_read_index: usize
+        eeprom_address_bits: usize
+        audio_events: Vec<audio::RegisterWrite>
+        keypad_pressed: u16
+        keypad_control: u16
+        affine_references: [i32; 4]
+    }
+
+    fn zero_u32(length: usize) -> Vec<u32> {
+        var values = Vec<u32>.with_capacity(length)
+        var index: usize = 0
+        while index < length {
+            values.push(0)
+            index = index.wrapping_add(1)
+        }
+        return move values
+    }
+
+    fn new() -> State {
+        var memory = State {
+            bios: std::bytes::filled(BIOS_SIZE, 0)
+            bios_loaded: false
+            ewram: std::bytes::filled(EWRAM_SIZE, 0)
+            iwram: std::bytes::filled(IWRAM_SIZE, 0)
+            io: std::bytes::filled(IO_SIZE, 0)
+            palette: std::bytes::filled(PALETTE_SIZE, 0)
+            palette_colors: zero_u32(PALETTE_SIZE / 2)
+            vram: std::bytes::filled(VRAM_SIZE, 0)
+            oam: std::bytes::filled(OAM_SIZE, 0)
+            timer_reload: [0, 0, 0, 0]
+            timer_counter: [0, 0, 0, 0]
+            timer_control: [0, 0, 0, 0]
+            timer_cycles: [0, 0, 0, 0]
+            timer_shifts: [0, 0, 0, 0]
+            timer_masks: [0, 0, 0, 0]
+            timer_next_cycles: timers::NO_EVENT
+            timer_direct: 0
+            timer_cascade: 0
+            gamepak_wait_first: [4, 4, 4]
+            gamepak_wait_second: [2, 4, 8]
+            backup_wait: 4
+            backup: std::bytes::filled(backup::FLASH_CAPACITY, 0)
+            save_kind: backup::Kind::Sram()
+            flash_state: backup::FlashState::Ready()
+            flash_bank: 0
+            flash_id: false
+            eeprom_command: Vec<u8>.new()
+            eeprom_read: Vec<u8>.new()
+            eeprom_read_index: 0
+            eeprom_address_bits: 0
+            audio_events: Vec<audio::RegisterWrite>.new()
+            keypad_pressed: 0
+            keypad_control: 0
+            affine_references: [0, 0, 0, 0]
+        }
+        memory.io[keypad::INPUT] = 255
+        memory.io[keypad::INPUT + 1] = 3
+        bios::sound::initialize_hle_bios(memory)
+        return move memory
+    }
+}

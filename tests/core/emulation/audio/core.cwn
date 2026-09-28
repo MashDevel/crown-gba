@@ -1,0 +1,156 @@
+fn reset_test_audio(emulator: write emulator::State) -> void {
+    emulator.audio = audio::new()
+    while emulator.memory.audio_events.length() != 0 {
+        emulator.memory.audio_events.pop()
+    }
+    return
+}
+
+fn test_pulse_audio(emulator: write emulator::State) -> u32 {
+    reset_test_audio(emulator)
+    memory::write16(emulator.memory, 67108996, 128)
+    memory::write16(emulator.memory, 67108992, 4471)
+    memory::write16(emulator.memory, 67108994, 2)
+    memory::write16(emulator.memory, 67108962, 61568)
+    memory::write16(emulator.memory, 67108964, 33792)
+    audio::step(emulator, 512, [0, 0, 0, 0])
+    if emulator.audio.sample_count != 1 {
+        return 33
+    }
+    if emulator.audio.samples.length() != 2 {
+        return 34
+    }
+    if emulator.audio.samples[0] == 0 {
+        return 35
+    }
+    if emulator.audio.samples[1] == 0 {
+        return 36
+    }
+    return 0
+}
+
+fn test_direct_sound(emulator: write emulator::State) -> u32 {
+    reset_test_audio(emulator)
+    memory::write16(emulator.memory, 67108996, 128)
+    memory::write16(emulator.memory, 67108994, 768)
+    memory::write32(emulator.memory, 67109024, 67305985)
+    audio::step(emulator, 512, [1, 0, 0, 0])
+    if emulator.audio.fifo_a.current_sample != 1 {
+        return 37
+    }
+    if emulator.audio.samples[0] != 2 {
+        return 38
+    }
+    if emulator.audio.samples[1] != 2 {
+        return 39
+    }
+    memory::write16(emulator.memory, 67108996, 0)
+    audio::process_events(emulator)
+    if emulator.audio.fifo_a.length != 0 {
+        return 40
+    }
+    return 0
+}
+
+fn test_audio_pwm_bias(emulator: write emulator::State) -> u32 {
+    reset_test_audio(emulator)
+    memory::write16(emulator.memory, 67108996, 128)
+    memory::write16(emulator.memory, 67108994, 768)
+    memory::write16(emulator.memory, 67109000, 0)
+    memory::write32(emulator.memory, 67109024, 2155905152)
+    audio::step(emulator, 512, [1, 0, 0, 0])
+    if emulator.audio.samples[0] != 0 {
+        return 93
+    }
+    if emulator.audio.samples[1] != 0 {
+        return 94
+    }
+    if audio::pwm_sample(511, 1023) != 0 {
+        return 95
+    }
+    if audio::pwm_sample(-512, 512) != -512 {
+        return 96
+    }
+    return 0
+}
+
+fn test_wave_audio(emulator: write emulator::State) -> u32 {
+    reset_test_audio(emulator)
+    memory::write16(emulator.memory, 67108996, 128)
+    memory::write16(emulator.memory, 67108992, 17527)
+    memory::write16(emulator.memory, 67108994, 2)
+    memory::write16(emulator.memory, 67108976, 128)
+    memory::write16(emulator.memory, 67108978, 8192)
+    var offset: u32 = 0
+    while offset < 16 {
+        memory::write16(emulator.memory, 67109008 + offset, 61455)
+        offset = offset + 2
+    }
+    memory::write16(emulator.memory, 67108980, 33792)
+    audio::step(emulator, 1024, [0, 0, 0, 0])
+    if emulator.audio.nonzero == false {
+        return 41
+    }
+    return 0
+}
+
+fn test_noise_audio(emulator: write emulator::State) -> u32 {
+    reset_test_audio(emulator)
+    memory::write16(emulator.memory, 67108996, 128)
+    memory::write16(emulator.memory, 67108992, 34935)
+    memory::write16(emulator.memory, 67108994, 2)
+    memory::write16(emulator.memory, 67108984, 61440)
+    memory::write16(emulator.memory, 67108988, 32771)
+    audio::step(emulator, 2048, [0, 0, 0, 0])
+    if emulator.audio.nonzero == false {
+        return 42
+    }
+    return 0
+}
+
+fn test_empty_audio_events(emulator: write emulator::State) -> u32 {
+    reset_test_audio(emulator)
+    emulator.memory.io[96] = 255
+    audio::process_events(emulator)
+    if emulator.memory.io[96] != 255 {
+        return 43
+    }
+    audio::write_master(emulator.audio, 128)
+    audio::step(emulator, 1, [0, 0, 0, 0])
+    if emulator.memory.io[96] != 255 {
+        return 44
+    }
+    return 0
+}
+
+fn test_audio(emulator: write emulator::State) -> u32 {
+    let fifo = test_audio_fifo_halfwords();
+    if fifo != 0 {
+        return fifo
+    }
+    let buffer = test_audio_buffer()
+    if buffer != 0 {
+        return buffer
+    }
+    let empty = test_empty_audio_events(emulator)
+    if empty != 0 {
+        return empty
+    }
+    let pulse = test_pulse_audio(emulator)
+    if pulse != 0 {
+        return pulse
+    }
+    let direct = test_direct_sound(emulator)
+    if direct != 0 {
+        return direct
+    }
+    let bias = test_audio_pwm_bias(emulator)
+    if bias != 0 {
+        return bias
+    }
+    let wave = test_wave_audio(emulator)
+    if wave != 0 {
+        return wave
+    }
+    return test_noise_audio(emulator)
+}

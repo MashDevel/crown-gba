@@ -1,0 +1,119 @@
+module bus {
+    fn charge_access(emulator: write emulator::State, address: u32, width: u32) -> void {
+        if emulator.bus_charging == false {
+            return
+        }
+        let region = address >> memory::REGION_SHIFT
+        if region == memory::region::EWRAM {
+            var penalty: u32 = 2
+            if width >= 4 {
+                penalty = 5
+            }
+            charge_fixed(emulator, penalty)
+            return
+        }
+        if region == memory::region::PALETTE {
+            charge_vram(emulator, width)
+            return
+        }
+        if region == memory::region::VRAM {
+            charge_vram(emulator, width)
+            return
+        }
+        if region >= memory::region::ROM_FIRST {
+            if region <= memory::region::ROM_LAST {
+                let penalty = gamepak_penalty(emulator, address, width)
+                emulator.access_penalty_cycles = emulator.access_penalty_cycles + penalty
+                return
+            }
+        }
+        if region == memory::region::SAVE {
+            let wait = emulator.memory.backup_wait
+            charge_fixed(emulator, wait)
+            return
+        }
+        emulator.gamepak_seq_valid = false
+        return
+    }
+
+    fn charge_vram(emulator: write emulator::State, width: u32) -> void {
+        var penalty: u32 = 0
+        if width >= 4 {
+            penalty = 1
+        }
+        charge_fixed(emulator, penalty)
+        return
+    }
+
+    fn charge_fixed(emulator: write emulator::State, penalty: u32) -> void {
+        emulator.access_penalty_cycles = emulator.access_penalty_cycles + penalty
+        emulator.gamepak_seq_valid = false
+        return
+    }
+
+    fn gamepak_penalty(emulator: write emulator::State, address: u32, width: u32) -> u32 {
+        let aligned = address & memory::HALFWORD_ADDRESS_MASK
+        var sequential = false
+        if width > 1 {
+            if emulator.gamepak_seq_valid {
+                if emulator.next_gamepak_seq_width == width {
+                    sequential = emulator.next_gamepak_seq_addr == aligned
+                }
+            }
+        }
+        let first = gamepak_halfword_wait(emulator.memory, address, sequential)
+        var penalty = first
+        if width >= 4 {
+            penalty = penalty + gamepak_halfword_wait(emulator.memory, address + 2, true)
+        }
+        emulator.gamepak_seq_valid = width > 1
+        emulator.next_gamepak_seq_addr = aligned.wrapping_add(width)
+        emulator.next_gamepak_seq_width = width
+        return penalty
+    }
+
+    fn gamepak_halfword_wait(memory: memory::State, address: u32, sequential: bool) -> u32 {
+        var area = usize.from((address >> 25) - 4)
+        if area > 2 {
+            area = 2
+        }
+        if sequential {
+            return memory.gamepak_wait_second[area]
+        }
+        return memory.gamepak_wait_first[area]
+    }
+
+    fn memory_update_waitstates(memory: write memory::State, value: u16) -> void {
+        memory.backup_wait = first_wait(value)
+        memory.gamepak_wait_first[0] = first_wait(value >> 2)
+        memory.gamepak_wait_first[1] = first_wait(value >> 5)
+        memory.gamepak_wait_first[2] = first_wait(value >> 8)
+        memory.gamepak_wait_second[0] = 2
+        memory.gamepak_wait_second[1] = 4
+        memory.gamepak_wait_second[2] = 8
+        if value & 16 != 0 {
+            memory.gamepak_wait_second[0] = 1
+        }
+        if value & 128 != 0 {
+            memory.gamepak_wait_second[1] = 1
+        }
+        if value & 1024 != 0 {
+            memory.gamepak_wait_second[2] = 1
+        }
+        return
+    }
+
+    fn first_wait(value: u16) -> u32 {
+        let index = value & 3
+        if index == 0 {
+            return 4
+        }
+        if index == 1 {
+            return 3
+        }
+        if index == 2 {
+            return 2
+        }
+        return 8
+    }
+}

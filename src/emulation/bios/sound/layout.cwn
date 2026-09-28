@@ -1,0 +1,21 @@
+module bios {
+    module sound {
+        const WORK_AREA_POINTER: u32 = memory::IWRAM_START + 0x7ff0
+        const DRIVER_READY: u32 = 0x68736d53
+        const DRIVER_BUSY: u32 = DRIVER_READY + 1
+        const PLAYER_PAUSED: u32 = 1 << 31
+        const PCM_DMA_BUFFER_SAMPLES: u32 = 1584
+        const FRAME_RATE_SCALED: u32 = 597275
+        const FRAME_RATE_SCALE: u32 = 10000
+        const JUMP_TABLE: usize = 0x3f70
+        const JUMP_ENTRY_BYTES: usize = 4
+        const JUMP_ENTRIES: usize = 36
+        const IRQ_ENTRY: usize = 0x100
+        const IRQ_HANDLER_LOAD: u16 = 0x4b00
+        const THUMB_BRANCH_R3: u16 = 0x4718
+        const THUMB_RETURN: u16 = 0x4770
+        const IRQ_RETURN_SWI: u32 = 0xef00001f
+        const ARM_RETURN: u32 = 0xe12fff1e
+        const FIRST_SOUND_JUMP: u16 = 0xdf2b
+    }
+}

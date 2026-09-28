@@ -1,0 +1,28 @@
+module cpu {
+    const CONDITION_FLAGS: u32 = 0xf0000000
+
+    const SP: usize = 13
+    const LR: usize = 14
+    const PC: usize = 15
+    const NEGATIVE: u32 = 31
+    const ZERO: u32 = 30
+    const CARRY: u32 = 29
+    const OVERFLOW: u32 = 28
+    const IRQ_DISABLE: u32 = 7
+    const FIQ_DISABLE: u32 = 6
+    const THUMB_STATE: u32 = 1 << 5
+    const MODE_MASK: u32 = 0x1f
+    const USER_MODE: u32 = 0x10
+    const FIQ_MODE: u32 = 0x11
+    const IRQ_MODE: u32 = 0x12
+    const SUPERVISOR_MODE: u32 = 0x13
+    const ABORT_MODE: u32 = 0x17
+    const UNDEFINED_MODE: u32 = 0x1b
+    const SYSTEM_MODE: u32 = 0x1f
+    const BOOT_STACK: u32 = memory::IWRAM_START + 0x7f00
+    const IRQ_STACK: u32 = memory::IWRAM_START + 0x7fa0
+    const SUPERVISOR_STACK: u32 = memory::IWRAM_START + 0x7fe0
+    const SWI_VECTOR: u32 = 0x08
+    const IRQ_VECTOR: u32 = 0x18
+    const RESET_STATUS: u32 = SUPERVISOR_MODE |(1 << IRQ_DISABLE) |(1 << FIQ_DISABLE)
+}

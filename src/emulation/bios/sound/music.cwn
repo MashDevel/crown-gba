@@ -1,0 +1,90 @@
+module bios {
+    module sound {
+        fn initialize_hle_bios(memory: write memory::State) -> void {
+            hle_store16(memory.bios, IRQ_ENTRY, IRQ_HANDLER_LOAD)
+            hle_store16(memory.bios, IRQ_ENTRY + 2, THUMB_BRANCH_R3)
+            hle_store32(memory.bios, IRQ_ENTRY + 4, memory::WORD_ADDRESS_MASK)
+            hle_store32(memory.bios, IRQ_ENTRY + 56, IRQ_RETURN_SWI)
+            hle_store32(memory.bios, IRQ_ENTRY + 60, ARM_RETURN)
+            var index: usize = 0
+            while index < JUMP_ENTRIES {
+                let address: usize = JUMP_TABLE + index * JUMP_ENTRY_BYTES
+                hle_store16(memory.bios, address, FIRST_SOUND_JUMP + u16.from(index))
+                hle_store16(memory.bios, address + 2, THUMB_RETURN)
+                index = index + 1
+            }
+            return
+        }
+
+        fn hle_store16(bytes: write Vec<u8>, offset: usize, value: u16) -> void {
+            bytes[offset] = u8.from(value & 255)
+            bytes[offset + 1] = u8.from(value >> 8)
+            return
+        }
+
+        fn hle_store32(bytes: write Vec<u8>, offset: usize, value: u32) -> void {
+            bytes[offset] = u8.from(value & 255)
+            bytes[offset + 1] = u8.from(value >> 8 & 255)
+            bytes[offset + 2] = u8.from(value >> 16 & 255)
+            bytes[offset + 3] = u8.from(value >> 24)
+            return
+        }
+
+        fn midi_key_to_frequency(emulator: write emulator::State) -> void {
+            let wave = emulator.cpu.registers[0]
+            var key = emulator.cpu.registers[1]
+            var fraction = emulator.cpu.registers[2] & 255
+            if key > 178 {
+                key = 178
+                fraction = 255
+            }
+            let base = midi_frequency(key)
+            let next = midi_frequency(key + 1)
+            let delta = next.wrapping_sub(base)
+            let fraction_delta = u32.from(u64.from(delta) * u64.from(fraction) >> 8)
+            let interpolated = fraction_delta.wrapping_add(base)
+            let wave_frequency = memory::read32(emulator.memory, emulator.cartridge, wave + 4)
+            emulator.cpu.registers[0] = u32.from(u64.from(interpolated) * u64.from(wave_frequency) >> 32)
+            return
+        }
+
+        fn midi_frequency(key: u32) -> u32 {
+            let frequencies: [u32; 12] = [
+                2147483648, 2275179671, 2410468894, 2553802834,
+                2705659852, 2866546760, 3037000500, 3217589947,
+                3408917802, 3611622603, 3826380858, 4053909305
+            ]
+            let note = usize.from(key % 12)
+            let octave = 14 - key / 12
+            return frequencies[note] >> octave
+        }
+
+        fn get_jump_list(emulator: write emulator::State) -> void {
+            let destination = emulator.cpu.registers[0] & memory::WORD_ADDRESS_MASK
+            var index: u32 = 0
+            while index < u32.from(JUMP_ENTRIES) {
+                memory::write32(emulator.memory, destination + index * 4, u32.from(JUMP_TABLE) + 1 + index * u32.from(JUMP_ENTRY_BYTES))
+                index = index + 1
+            }
+            return
+        }
+
+        fn jump_call(emulator: write emulator::State, index: usize) -> void {
+            let area = area(emulator)
+            if area == 0 {
+                return
+            }
+            let table = memory::read32(emulator.memory, emulator.cartridge, area + 52)
+            if table == 0 {
+                return
+            }
+            let target = memory::read32(
+                emulator.memory,
+                emulator.cartridge,
+                table.wrapping_add(u32.from(index) * 4)
+            )
+            branch_target(emulator.cpu, target)
+            return
+        }
+    }
+}

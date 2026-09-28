@@ -1,0 +1,244 @@
+module bus {
+    fn read16(emulator: write emulator::State, address: u32) -> u16 {
+        let aligned = address & memory::HALFWORD_ADDRESS_MASK
+        charge_access(emulator, aligned, 2)
+        let value = load16(emulator, aligned)
+        emulator.last_open_bus = emulator.last_open_bus & 4294901760 | u32.from(value)
+        value
+    }
+
+    fn load16(emulator: write emulator::State, aligned: u32) -> u16 {
+        let region = aligned >> memory::REGION_SHIFT
+        if is_eeprom(emulator.memory, region) {
+            return backup::eeprom_read16(emulator.memory)
+        }
+        if region == memory::region::IO {
+            return read_io16(emulator, aligned)
+        }
+        if uses_open_bus(emulator, region) {
+            return u16.from(emulator.last_open_bus >>((aligned & 2) * 8) & 65535)
+        }
+        memory::read16(emulator.memory, emulator.cartridge, aligned)
+    }
+
+    fn fetch16(emulator: write emulator::State, address: u32) -> u16 {
+        let aligned = address & memory::HALFWORD_ADDRESS_MASK
+        let region = aligned >> memory::REGION_SHIFT
+        if region == memory::region::IWRAM {
+            if emulator.bus_charging {
+                emulator.gamepak_seq_valid = false
+            }
+            let value = memory::vector_read16(emulator.memory.iwram, usize.from(aligned) & memory::IWRAM_MASK)
+            emulator.last_open_bus = emulator.last_open_bus & 4294901760 | u32.from(value)
+            return value
+        }
+        if region >= memory::region::ROM_FIRST {
+            if region <= memory::region::ROM_LAST {
+                if region != memory::region::ROM_LAST || emulator.memory.save_kind != backup::Kind::Eeprom() {
+                    let penalty = gamepak_penalty(emulator, aligned, 2)
+                    emulator.access_penalty_cycles = emulator.access_penalty_cycles + penalty
+                    let value = cartridge::read16(emulator.cartridge, aligned)
+                    emulator.last_open_bus = emulator.last_open_bus & 4294901760 | u32.from(value)
+                    return value
+                }
+            }
+        }
+        return read16(emulator, aligned)
+    }
+
+    fn read32(emulator: write emulator::State, address: u32) -> u32 {
+        let aligned = address & memory::WORD_ADDRESS_MASK
+        charge_access(emulator, aligned, 4)
+        let value = load32(emulator, aligned)
+        emulator.last_open_bus = value
+        value
+    }
+
+    fn load32(emulator: write emulator::State, aligned: u32) -> u32 {
+        let region = aligned >> memory::REGION_SHIFT
+        if is_eeprom(emulator.memory, region) {
+            let low = u32.from(backup::eeprom_read16(emulator.memory))
+            return low | u32.from(backup::eeprom_read16(emulator.memory)) << 16
+        }
+        if region == memory::region::IO {
+            let low = u32.from(read_io16(emulator, aligned))
+            return low | u32.from(read_io16(emulator, aligned.wrapping_add(2))) << 16
+        }
+        if uses_open_bus(emulator, region) {
+            return emulator.last_open_bus
+        }
+        memory::read32(emulator.memory, emulator.cartridge, aligned)
+    }
+
+    fn fetch32(emulator: write emulator::State, address: u32) -> u32 {
+        let aligned = address & memory::WORD_ADDRESS_MASK
+        let region = aligned >> memory::REGION_SHIFT
+        if region == memory::region::IWRAM {
+            if emulator.bus_charging {
+                emulator.gamepak_seq_valid = false
+            }
+            let value = memory::vector_read32(emulator.memory.iwram, usize.from(aligned) & memory::IWRAM_MASK)
+            emulator.last_open_bus = value
+            return value
+        }
+        if region >= memory::region::ROM_FIRST {
+            if region <= memory::region::ROM_LAST {
+                if region != memory::region::ROM_LAST || emulator.memory.save_kind != backup::Kind::Eeprom() {
+                    let penalty = gamepak_penalty(emulator, aligned, 4)
+                    emulator.access_penalty_cycles = emulator.access_penalty_cycles + penalty
+                    let value = cartridge::read32(emulator.cartridge, aligned)
+                    emulator.last_open_bus = value
+                    return value
+                }
+            }
+        }
+        return read32(emulator, aligned)
+    }
+
+    fn read8(emulator: write emulator::State, address: u32) -> u8 {
+        charge_access(emulator, address, 1)
+        let value = load8(emulator, address)
+        emulator.last_open_bus = emulator.last_open_bus & 4294967040 | u32.from(value)
+        value
+    }
+
+    fn load8(emulator: write emulator::State, address: u32) -> u8 {
+        let region = address >> memory::REGION_SHIFT
+        if region == memory::region::IO {
+            let word = read_io16(emulator, address & memory::HALFWORD_ADDRESS_MASK)
+            return u8.from(word >> u16.from((address & 1) * 8) & 255)
+        }
+        if uses_open_bus(emulator, region) {
+            return u8.from(emulator.last_open_bus >>((address & 3) * 8) & 255)
+        }
+        memory::read8(emulator.memory, emulator.cartridge, address)
+    }
+
+    fn uses_open_bus(emulator: emulator::State, region: u32) -> bool {
+        if region == memory::region::BIOS {
+            return emulator.cpu.registers[cpu::PC] >= 16384
+        }
+        region == memory::region::RESERVED || region >= memory::region::UNMAPPED
+    }
+
+    fn is_eeprom(memory: memory::State, region: u32) -> bool {
+        memory.save_kind == backup::Kind::Eeprom() && region == memory::region::ROM_LAST
+    }
+
+    fn write8(emulator: write emulator::State, address: u32, value: u8) -> void {
+        charge_access(emulator, address, 1)
+        emulator.last_open_bus = emulator.last_open_bus & 4294967040 | u32.from(value)
+        if write_mapped_io8(emulator, address, value) {
+            return
+        }
+        memory::write8(emulator.memory, address, value)
+        return
+    }
+
+    fn read_io16(emulator: write emulator::State, address: u32) -> u16 {
+        let offset = usize.from(address) % memory::IO_SIZE
+        if offset >= timers::BASE {
+            if offset < timers::END {
+                let register = offset - timers::BASE
+                if register % timers::STRIDE == 0 {
+                    return emulator.memory.timer_counter[register / timers::STRIDE]
+                }
+            }
+        }
+        if offset >= audio::REGISTER_BASE {
+            if offset <= audio::REGISTER_END - 2 {
+                audio::process_events(emulator)
+                return audio::read16(emulator.audio, offset)
+            }
+        }
+        return memory::io_read16(emulator.memory, offset)
+    }
+
+    fn write_mapped_io8(emulator: write emulator::State, address: u32, value: u8) -> bool {
+        if address >> memory::REGION_SHIFT != memory::region::IO {
+            return false
+        }
+        if io_byte_mapped(address) == false {
+            return false
+        }
+        if address == memory::io_address(keypad::INPUT) {
+            return true
+        }
+        if address == memory::io_address(keypad::INPUT + 1) {
+            return true
+        }
+        let aligned = address & memory::HALFWORD_ADDRESS_MASK
+        let offset = usize.from(aligned) % memory::IO_SIZE
+        let current = memory::io_read16(emulator.memory, offset)
+        var combined = current & 65280 | u16.from(value)
+        if address & 1 != 0 {
+            combined = current & 255 | u16.from(value) << 8
+        }
+        if dma::register_address(aligned) {
+            dma::write16(emulator, aligned, combined)
+        } else {
+            memory::write16(emulator.memory, aligned, combined)
+        }
+        return true
+    }
+
+    copy struct IoRange {
+        first: u32
+        last: u32
+    }
+
+    fn io_byte_mapped(address: u32) -> bool {
+        let ranges = [
+            IoRange {
+                first: memory::IO_START, last: memory::io_address(video::BLEND_BRIGHTNESS)
+            },
+            IoRange {
+                first: memory::io_address(audio::PULSE1_SWEEP), last: memory::io_address(audio::REGISTER_END - 2)
+            },
+            IoRange {
+                first: memory::io_address(dma::BASE), last: memory::io_address(dma::END - 1)
+            },
+            IoRange {
+                first: memory::io_address(timers::BASE), last: memory::io_address(timers::END - 1)
+            },
+            IoRange {
+                first: memory::io_address(keypad::INPUT), last: memory::io_address(keypad::CONTROL + 1)
+            },
+            IoRange {
+                first: memory::io_address(system::INTERRUPT_ENABLE), last: memory::io_address(system::INTERRUPT_MASTER + 1)
+            }
+        ]
+        loan read ranges as values {
+            var index: usize = 0
+            while index < values.length() {
+                if address >= values[index].first && address <= values[index].last {
+                    return true
+                }
+                index = index + 1
+            }
+        }
+        false
+    }
+
+    fn write16(emulator: write emulator::State, address: u32, value: u16) -> void {
+        charge_access(emulator, address & memory::HALFWORD_ADDRESS_MASK, 2)
+        if dma::register_address(address) {
+            dma::write16(emulator, address, value)
+            return
+        }
+        memory::write16(emulator.memory, address, value)
+        return
+    }
+
+    fn write32(emulator: write emulator::State, address: u32, value: u32) -> void {
+        let aligned = address & memory::WORD_ADDRESS_MASK
+        charge_access(emulator, aligned, 4)
+        if dma::register_address(aligned) {
+            dma::write16(emulator, aligned, u16.from(value & 65535))
+            dma::write16(emulator, aligned.wrapping_add(2), u16.from(value >> 16))
+            return
+        }
+        memory::write32(emulator.memory, address, value)
+        return
+    }
+}

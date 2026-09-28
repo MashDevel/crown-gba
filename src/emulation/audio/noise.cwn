@@ -1,0 +1,99 @@
+module audio {
+    const NOISE_ZERO_DIVISOR_CYCLES: u64 = 16
+    const NOISE_DIVISOR_CYCLES: u64 = 512
+    const NOISE_DIVISOR_MASK: u8 = 7
+    const NOISE_LFSR_SEED: u16 = 0x7fff
+    const NOISE_SHORT_WIDTH: u16 = 1 << 3
+    const NOISE_LONG_FEEDBACK: u16 = 14
+    const NOISE_SHORT_FEEDBACK: u16 = 6
+
+    struct NoiseChannel {
+        control: ChannelControl
+        envelope: Envelope
+        dividing_ratio: u8
+        shift_clock: u8
+        width_7: bool
+        phase_cycles: u64
+        lfsr: u16
+    }
+
+    fn new_noise_channel() -> NoiseChannel {
+        return NoiseChannel {
+            control: new_channel_control()
+            envelope: new_envelope()
+            dividing_ratio: 0
+            shift_clock: 0
+            width_7: false
+            phase_cycles: 0
+            lfsr: NOISE_LFSR_SEED
+        }
+    }
+
+    fn noise_set_envelope(noise: write NoiseChannel, value: u16) -> void {
+        noise.control.length = 64 -(value & 63)
+        envelope_set(noise.envelope, value)
+        channel_set_dac(noise.control, value & ENVELOPE_DAC_MASK != 0)
+        return
+    }
+
+    fn noise_set_control(noise: write NoiseChannel, value: u16) -> void {
+        noise.dividing_ratio = u8.from(value & 7)
+        noise.width_7 = value & NOISE_SHORT_WIDTH != 0
+        noise.shift_clock = u8.from(value >> 4 & 15)
+        noise.control.length_enabled = value & LENGTH_ENABLE != 0
+        if value & TRIGGER != 0 {
+            channel_trigger(noise.control, 64)
+            noise.phase_cycles = 0
+            noise.lfsr = NOISE_LFSR_SEED
+            envelope_trigger(noise.envelope)
+        }
+        return
+    }
+
+    fn noise_step(noise: write NoiseChannel, cycles: u64) -> void {
+        if channel_active(noise.control) == false {
+            return
+        }
+        if noise.envelope.volume == 0 {
+            return
+        }
+        let period = noise_period(noise.dividing_ratio, noise.shift_clock)
+        noise.phase_cycles = noise.phase_cycles.wrapping_add(cycles)
+        while noise.phase_cycles >= period {
+            noise.phase_cycles = noise.phase_cycles - period
+            noise_shift(noise)
+        }
+        return
+    }
+
+    fn noise_period(ratio: u8, shift: u8) -> u64 {
+        var base = NOISE_ZERO_DIVISOR_CYCLES
+        if ratio >= 1 && ratio <= NOISE_DIVISOR_MASK {
+            base = u64.from(ratio) * NOISE_DIVISOR_CYCLES
+        }
+        return base << u64.from(shift + 1)
+    }
+
+    fn noise_shift(noise: write NoiseChannel) -> void {
+        let bit = (noise.lfsr & 1) ^(noise.lfsr >> 1 & 1)
+        noise.lfsr = noise.lfsr >> 1 | bit << NOISE_LONG_FEEDBACK
+        if noise.width_7 {
+            noise.lfsr = noise.lfsr & ~(1 << NOISE_SHORT_FEEDBACK) | bit << NOISE_SHORT_FEEDBACK
+        }
+        return
+    }
+
+    fn noise_sample(noise: NoiseChannel) -> i32 {
+        if channel_active(noise.control) == false {
+            return 0
+        }
+        if noise.envelope.volume == 0 {
+            return 0
+        }
+        let volume = i32.from(noise.envelope.volume)
+        if noise.lfsr & 1 == 0 {
+            return volume
+        }
+        return -volume
+    }
+}

@@ -1,0 +1,266 @@
+module bios {
+    fn initialize_direct_boot(memory: write memory::State) -> void {
+        memory.keypad_control = 0
+        keypad::set_pressed(memory, 0)
+        memory::io_store16(memory, video::CONTROL, video::FORCED_BLANK)
+        set_identity_background(memory, video::AFFINE_2)
+        set_identity_background(memory, video::AFFINE_3)
+        memory::io_store16(memory, audio::BIAS_CONTROL, DEFAULT_AUDIO_BIAS)
+        memory::io_store16(memory, system::WAIT_CONTROL, DIRECT_BOOT_WAIT)
+        memory.io[POST_BOOT] = 1
+        store_interrupt_flags(memory, 0)
+        store_irq_handler(memory, 0)
+        return
+    }
+
+    fn initialize_bios_boot(memory: write memory::State) -> void {
+        bytes::clear_vector(memory.io)
+        reset_timers(memory)
+        memory.keypad_control = 0
+        keypad::set_pressed(memory, 0)
+        memory::io_store16(memory, audio::BIAS_CONTROL, DEFAULT_AUDIO_BIAS)
+        return
+    }
+
+    fn set_identity_background(memory: write memory::State, offset: usize) -> void {
+        memory::io_store16(memory, offset, AFFINE_IDENTITY)
+        memory::io_store16(memory, offset + 2, 0)
+        memory::io_store16(memory, offset + 4, 0)
+        memory::io_store16(memory, offset + 6, AFFINE_IDENTITY)
+        return
+    }
+
+    fn interrupt_flags(memory: memory::State) -> u16 {
+        return bytes::join_u16(memory.iwram[INTERRUPT_FLAGS], memory.iwram[INTERRUPT_FLAGS + 1])
+    }
+
+    fn store_interrupt_flags(memory: write memory::State, value: u16) -> void {
+        memory.iwram[INTERRUPT_FLAGS] = u8.from(value & 255)
+        memory.iwram[INTERRUPT_FLAGS + 1] = u8.from(value >> 8)
+        return
+    }
+
+    fn store_irq_handler(memory: write memory::State, value: u32) -> void {
+        memory.iwram[IRQ_HANDLER] = u8.from(value & 255)
+        memory.iwram[IRQ_HANDLER + 1] = u8.from(value >> 8 & 255)
+        memory.iwram[IRQ_HANDLER + 2] = u8.from(value >> 16 & 255)
+        memory.iwram[IRQ_HANDLER + 3] = u8.from(value >> 24)
+        return
+    }
+
+    fn intr_wait(emulator: write emulator::State, mask: u32) -> void {
+        let selected = u16.from(mask & u32.from(system::INTERRUPT_MASK))
+        let flags = interrupt_flags(emulator.memory)
+        if emulator.cpu.registers[0] != 0 {
+            store_interrupt_flags(emulator.memory, flags & ~selected)
+        } else {
+            if flags & selected != 0 {
+                store_interrupt_flags(emulator.memory, flags & ~selected)
+                return
+            }
+        }
+        let enabled = memory::io_read16(emulator.memory, system::INTERRUPT_ENABLE)
+        memory::io_store16(emulator.memory, system::INTERRUPT_ENABLE, enabled | selected)
+        memory::io_store16(emulator.memory, system::INTERRUPT_MASTER, 1)
+        cpu::set_flag(emulator.cpu, cpu::IRQ_DISABLE, false)
+        emulator.cpu.halted = true
+        emulator.cpu.intr_wait_mask = selected
+        return
+    }
+
+    fn resume_intr_wait(emulator: write emulator::State) -> void {
+        let mask = emulator.cpu.intr_wait_mask
+        if mask == 0 {
+            return
+        }
+        let flags = interrupt_flags(emulator.memory)
+        if flags & mask == 0 {
+            return
+        }
+        store_interrupt_flags(emulator.memory, flags & ~mask)
+        emulator.cpu.halted = false
+        emulator.cpu.intr_wait_mask = 0
+        return
+    }
+
+    fn soft_reset(emulator: write emulator::State) -> void {
+        let reset = emulator.memory.iwram[RESET_DESTINATION] & 1
+        var index: usize = RESERVED_IWRAM
+        while index < memory::IWRAM_SIZE {
+            emulator.memory.iwram[index] = 0
+            index = index + 1
+        }
+        emulator.cpu = cpu::new()
+        if reset != 0 {
+            emulator.cpu.registers[cpu::PC] = memory::EWRAM_START
+        }
+        return
+    }
+
+    fn hard_reset(emulator: write emulator::State) -> void {
+        clear_volatile_memory(emulator.memory)
+        emulator.devices = devices::new()
+        emulator.ppu = video::new()
+        emulator.audio = audio::new()
+        emulator.cpu = cpu::new()
+        emulator.last_open_bus = 0
+        emulator.access_penalty_cycles = 0
+        emulator.next_gamepak_seq_addr = 0
+        emulator.next_gamepak_seq_width = 0
+        emulator.gamepak_seq_valid = false
+        emulator.bus_charging = false
+        emulator.dma_cycles_pending = 0
+        initialize_direct_boot(emulator.memory)
+        return
+    }
+
+    fn clear_volatile_memory(memory: write memory::State) -> void {
+        bytes::clear_vector(memory.ewram)
+        bytes::clear_vector(memory.iwram)
+        bytes::clear_vector(memory.io)
+        bytes::clear_vector(memory.palette)
+        memory.palette_colors = memory::zero_u32(512)
+        bytes::clear_vector(memory.vram)
+        bytes::clear_vector(memory.oam)
+        reset_timers(memory)
+        memory.flash_state = backup::FlashState::Ready()
+        memory.flash_bank = 0
+        memory.flash_id = false
+        while memory.eeprom_command.length() != 0 {
+            memory.eeprom_command.pop()
+        }
+        while memory.eeprom_read.length() != 0 {
+            memory.eeprom_read.pop()
+        }
+        memory.eeprom_read_index = 0
+        memory.audio_events = Vec<audio::RegisterWrite>.new()
+        memory.keypad_pressed = 0
+        memory.keypad_control = 0
+        return
+    }
+
+    fn reset_timers(memory: write memory::State) -> void {
+        memory.timer_reload = [0, 0, 0, 0]
+        memory.timer_counter = [0, 0, 0, 0]
+        memory.timer_control = [0, 0, 0, 0]
+        memory.timer_cycles = [0, 0, 0, 0]
+        memory.timer_shifts = [0, 0, 0, 0]
+        memory.timer_masks = [0, 0, 0, 0]
+        memory.timer_next_cycles = timers::NO_EVENT
+        memory.timer_direct = 0
+        memory.timer_cascade = 0
+        return
+    }
+
+    fn ram_reset(emulator: write emulator::State) -> void {
+        let flags = u8.from(emulator.cpu.registers[0] & 255)
+        if flags & 1 != 0 {
+            clear_region(emulator, memory::EWRAM_START, u32.from(memory::EWRAM_SIZE))
+        }
+        if flags & 2 != 0 {
+            clear_region(emulator, memory::IWRAM_START, u32.from(RESERVED_IWRAM))
+        }
+        if flags & 4 != 0 {
+            clear_region(emulator, memory::PALETTE_START, u32.from(memory::PALETTE_SIZE))
+        }
+        if flags & 8 != 0 {
+            clear_region(emulator, memory::VRAM_START, u32.from(memory::VRAM_SIZE))
+        }
+        if flags & 16 != 0 {
+            clear_region(emulator, memory::OAM_START, u32.from(memory::OAM_SIZE))
+        }
+        if flags & 32 != 0 {
+            reset_serial_registers(emulator.memory)
+        }
+        if flags & 64 != 0 {
+            reset_audio(emulator)
+        }
+        if flags & 128 != 0 {
+            reset_register_devices(emulator)
+        }
+        return
+    }
+
+    fn clear_region(emulator: write emulator::State, address: u32, length: u32) -> void {
+        var offset: u32 = 0
+        while offset < length {
+            bus::write32(emulator, address + offset, 0)
+            offset = offset + 4
+        }
+        return
+    }
+
+    fn reset_serial_registers(memory: write memory::State) -> void {
+        clear_io_range(memory, 288, 298)
+        clear_io_range(memory, 308, 346)
+        return
+    }
+
+    fn reset_audio(emulator: write emulator::State) -> void {
+        emulator.audio = audio::new()
+        emulator.memory.audio_events = Vec<audio::RegisterWrite>.new()
+        clear_io_range(emulator.memory, audio::REGISTER_BASE, audio::REGISTER_END)
+        memory::io_store16(emulator.memory, audio::BIAS_CONTROL, DEFAULT_AUDIO_BIAS)
+        return
+    }
+
+    fn reset_register_devices(emulator: write emulator::State) -> void {
+        emulator.devices = devices::new()
+        emulator.ppu = video::new()
+        clear_io_range(emulator.memory, video::CONTROL, audio::REGISTER_BASE)
+        clear_io_range(emulator.memory, dma::BASE, dma::END - 4)
+        clear_io_range(emulator.memory, timers::BASE, timers::END)
+        clear_io_range(emulator.memory, keypad::INPUT, keypad::CONTROL + 4)
+        clear_io_range(emulator.memory, system::INTERRUPT_ENABLE, system::WAIT_CONTROL)
+        clear_io_range(emulator.memory, system::INTERRUPT_MASTER, system::INTERRUPT_MASTER + 2)
+        reset_timers(emulator.memory)
+        emulator.memory.keypad_pressed = 0
+        emulator.memory.keypad_control = 0
+        keypad::set_pressed(emulator.memory, 0)
+        memory::io_store16(emulator.memory, video::CONTROL, video::FORCED_BLANK)
+        set_identity_background(emulator.memory, video::AFFINE_2)
+        set_identity_background(emulator.memory, video::AFFINE_3)
+        return
+    }
+
+    fn clear_io_range(memory: write memory::State, start: usize, end: usize) -> void {
+        var index = start
+        while index < end {
+            memory.io[index] = 0
+            index = index + 1
+        }
+        return
+    }
+
+    fn debug_print(emulator: write emulator::State) -> void {
+        let allocated = host::allocate_buffer(DEBUG_BUFFER_CAPACITY)
+        match move allocated {
+            Ok(buffer) => {
+                var output = move buffer
+                let length = copy_debug_text(emulator, output)
+                if length != 0 {
+                    host::write_standard_error(output, length)
+                }
+            }
+            Err(code) => {
+                emulator.unsupported_swi = code
+            }
+        }
+        return
+    }
+
+    fn copy_debug_text(emulator: write emulator::State, buffer: write host::Buffer) -> usize {
+        var address = emulator.cpu.registers[0]
+        var length: usize = 0
+        while length < host::buffer_length(buffer) {
+            let value = memory::read8(emulator.memory, emulator.cartridge, address)
+            if value == 0 {
+                return length
+            }
+            host::buffer_set(buffer, length, value)
+            length = length + 1
+            address = address.wrapping_add(1)
+        }
+        return length
+    }
+}

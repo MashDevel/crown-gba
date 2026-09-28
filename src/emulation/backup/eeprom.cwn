@@ -1,0 +1,156 @@
+module backup {
+    const EEPROM_BITS_PER_BYTE: usize = 8
+    const EEPROM_BLOCK_BYTES: usize = 8
+    const EEPROM_BLOCK_BITS: usize = EEPROM_BLOCK_BYTES * EEPROM_BITS_PER_BYTE
+    const EEPROM_PREFIX_BITS: usize = 1
+    const EEPROM_COMMAND_BITS: usize = 2
+    const EEPROM_STOP_BITS: usize = 1
+    const EEPROM_READ_DUMMY_BITS: usize = 4
+
+    fn eeprom_write_bit(memory: write memory::State, bit: u8) -> void {
+        memory.eeprom_command.push(bit & 1)
+        return
+    }
+
+    fn eeprom_read16(memory: write memory::State) -> u16 {
+        if memory.eeprom_command.length() != 0 {
+            eeprom_try_execute(memory)
+        }
+        if memory.eeprom_read_index >= memory.eeprom_read.length() {
+            return 1
+        }
+        let bit = memory.eeprom_read[memory.eeprom_read_index]
+        memory.eeprom_read_index = memory.eeprom_read_index + 1
+        return u16.from(bit)
+    }
+
+    fn eeprom_try_execute(memory: write memory::State) -> void {
+        let length = memory.eeprom_command.length()
+        if eeprom_packet_length(length, 0) {
+            eeprom_execute(memory, false);
+            return
+        }
+        if eeprom_packet_length(length, EEPROM_BLOCK_BITS) {
+            eeprom_execute(memory, true)
+        }
+    }
+
+    fn eeprom_packet_length(length: usize, data_bits: usize) -> bool {
+        let small = EEPROM_PREFIX_BITS + EEPROM_COMMAND_BITS + EEPROM_SMALL_ADDRESS_BITS + data_bits
+        let large = EEPROM_PREFIX_BITS + EEPROM_COMMAND_BITS + EEPROM_LARGE_ADDRESS_BITS + data_bits
+        length == small || length == small + EEPROM_STOP_BITS || length == large || length == large + EEPROM_STOP_BITS
+    }
+
+    fn eeprom_address_width(payload: usize, data_bits: usize) -> usize {
+        let small = EEPROM_COMMAND_BITS + EEPROM_SMALL_ADDRESS_BITS + data_bits
+        let large = EEPROM_COMMAND_BITS + EEPROM_LARGE_ADDRESS_BITS + data_bits
+        if payload == small || payload == small + EEPROM_STOP_BITS {
+            return EEPROM_SMALL_ADDRESS_BITS
+        }
+        if payload == large || payload == large + EEPROM_STOP_BITS {
+            return EEPROM_LARGE_ADDRESS_BITS
+        }
+        0
+    }
+
+    fn eeprom_execute(memory: write memory::State, writing: bool) -> void {
+        let start: usize = if memory.eeprom_command[0] == 1 {
+            EEPROM_PREFIX_BITS
+        } else {
+            0
+        }
+        let data_bits = if writing {
+            EEPROM_BLOCK_BITS
+        } else {
+            0
+        }
+        let address_bits = eeprom_address_width(memory.eeprom_command.length() - start, data_bits)
+        if address_bits == 0 || memory.eeprom_command[start] != 1 {
+            return
+        }
+        let operation: u8 = if writing {
+            0
+        } else {
+            1
+        }
+        if memory.eeprom_command[start + 1] != operation {
+            return
+        }
+        let address_start = start + EEPROM_COMMAND_BITS
+        let address = eeprom_bits_to_usize(memory.eeprom_command, address_start, address_bits)
+        memory.eeprom_address_bits = address_bits
+        if writing {
+            eeprom_write_block(memory, address, address_start + address_bits)
+            eeprom_clear_read(memory)
+        } else {
+            eeprom_prepare_read(memory, address)
+        }
+        eeprom_clear_command(memory)
+    }
+
+    fn eeprom_bits_to_usize(bits: Vec<u8>, start: usize, count: usize) -> usize {
+        var value: usize = 0
+        var index: usize = 0
+        while index < count {
+            value = value << 1 | usize.from(bits[start + index])
+            index = index + 1
+        }
+        return value
+    }
+
+    fn eeprom_block_base(address: usize, address_bits: usize) -> usize {
+        var blocks = EEPROM_LARGE_SIZE / EEPROM_BLOCK_BYTES
+        if address_bits == EEPROM_SMALL_ADDRESS_BITS {
+            blocks = EEPROM_SMALL_SIZE / EEPROM_BLOCK_BYTES
+        }
+        return address % blocks * EEPROM_BLOCK_BYTES
+    }
+
+    fn eeprom_write_block(memory: write memory::State, address: usize, start: usize) -> void {
+        let base = eeprom_block_base(address, memory.eeprom_address_bits)
+        var byte_index: usize = 0
+        while byte_index < EEPROM_BLOCK_BYTES {
+            let bit_start = start + byte_index * EEPROM_BITS_PER_BYTE
+            let value = eeprom_bits_to_usize(memory.eeprom_command, bit_start, EEPROM_BITS_PER_BYTE)
+            memory.backup[base + byte_index] = u8.from(value)
+            byte_index = byte_index + 1
+        }
+        return
+    }
+
+    fn eeprom_prepare_read(memory: write memory::State, address: usize) -> void {
+        eeprom_clear_read(memory)
+        var prefix: usize = 0
+        while prefix < EEPROM_READ_DUMMY_BITS {
+            memory.eeprom_read.push(0)
+            prefix = prefix + 1
+        }
+        let base = eeprom_block_base(address, memory.eeprom_address_bits)
+        var byte_index: usize = 0
+        while byte_index < EEPROM_BLOCK_BYTES {
+            let value = memory.backup[base + byte_index]
+            var bit = u8.from(EEPROM_BITS_PER_BYTE)
+            while bit != 0 {
+                bit = bit - 1
+                memory.eeprom_read.push(value >> bit & 1)
+            }
+            byte_index = byte_index + 1
+        }
+        return
+    }
+
+    fn eeprom_clear_command(memory: write memory::State) -> void {
+        while memory.eeprom_command.length() != 0 {
+            memory.eeprom_command.pop()
+        }
+        return
+    }
+
+    fn eeprom_clear_read(memory: write memory::State) -> void {
+        while memory.eeprom_read.length() != 0 {
+            memory.eeprom_read.pop()
+        }
+        memory.eeprom_read_index = 0
+        return
+    }
+}

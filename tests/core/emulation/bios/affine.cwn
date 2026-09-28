@@ -1,0 +1,51 @@
+fn test_bios_angles(emulator: write emulator::State) -> u32 {
+    emulator.cpu.registers[0] = 0
+    bios::arctan(emulator.cpu)
+    if emulator.cpu.registers[0] != 0 {
+        return 68
+    }
+    emulator.cpu.registers[0] = 0
+    emulator.cpu.registers[1] = 1
+    bios::arctan2(emulator.cpu)
+    if emulator.cpu.registers[0] != 16384 {
+        return 69
+    }
+    return 0
+}
+
+fn test_bios_background_affine(emulator: write emulator::State) -> u32 {
+    let source: u32 = 33558016
+    let output: u32 = 33558272
+    memory::write32(emulator.memory, source, 1000)
+    memory::write32(emulator.memory, source.wrapping_add(4), 2000)
+    memory::write16(emulator.memory, source.wrapping_add(8), 1)
+    memory::write16(emulator.memory, source.wrapping_add(10), 2)
+    memory::write16(emulator.memory, source.wrapping_add(12), 256)
+    memory::write16(emulator.memory, source.wrapping_add(14), 256)
+    memory::write16(emulator.memory, source.wrapping_add(16), 0)
+    emulator.cpu.registers[0] = source
+    emulator.cpu.registers[1] = output
+    emulator.cpu.registers[2] = 1
+    bios::bg_affine_set(emulator)
+    if memory::read16(emulator.memory, emulator.cartridge, output) != 256 {
+        return 70
+    }
+    if memory::read16(emulator.memory, emulator.cartridge, output.wrapping_add(6)) != 256 {
+        return 71
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, output.wrapping_add(8)) != 744 {
+        return 72
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, output.wrapping_add(12)) != 1488 {
+        return 73
+    }
+    return 0
+}
+
+fn test_bios_affine(emulator: write emulator::State) -> u32 {
+    let angles = test_bios_angles(emulator)
+    if angles != 0 {
+        return angles
+    }
+    return test_bios_background_affine(emulator)
+}

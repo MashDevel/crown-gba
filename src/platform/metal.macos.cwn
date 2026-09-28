@@ -1,0 +1,186 @@
+module platform {
+    const METAL_BGRA8_UNORM: u64 = 80
+    const METAL_LOAD_CLEAR: u64 = 2
+    const METAL_STORE: u64 = 1
+    const METAL_TRIANGLE_STRIP: u64 = 4
+    const FRAMEBUFFER_BYTES: usize = video::PIXELS * 4
+    const DISPLAY_SCALE: usize = 3
+
+    opaque resource MetalPipeline {
+        pipeline: RawPtr<void>
+        buffer: RawPtr<void>
+        data: RawPtr<u32>
+        drop {
+            unsafe {
+                release_object(buffer)
+                release_object(pipeline)
+            }
+        }
+    }
+
+    opaque resource MetalSurface {
+        device: RawPtr<void>
+        layer: RawPtr<void>
+        queue: RawPtr<void>
+        pipeline: RawPtr<void>
+        buffer: RawPtr<void>
+        data: RawPtr<u32>
+        drop {
+            unsafe {
+                release_object(buffer)
+                release_object(pipeline)
+                release_object(queue)
+                release_object(layer)
+                release_object(device)
+            }
+        }
+    }
+
+    fn metal_shader_source() -> Text {
+        var source = "#include <metal_stdlib>\nusing namespace metal;\nconstant uint FRAME_WIDTH = "
+        std::text::append(source, std::text::decimal(u64.from(video::WIDTH)))
+        std::text::append(source, ";\nconstant uint FRAME_HEIGHT = ")
+        std::text::append(source, std::text::decimal(u64.from(video::HEIGHT)))
+        std::text::append(source, ";\n")
+        std::text::append(source, "struct VertexOut { float4 position [[position]]; float2 uv; };\nvertex VertexOut vertex_main(uint id [[vertex_id]]) { float2 positions[4] = {float2(-1, 1), float2(-1, -1), float2(1, 1), float2(1, -1)}; float2 coordinates[4] = {float2(0, 0), float2(0, 1), float2(1, 0), float2(1, 1)}; return VertexOut{float4(positions[id], 0, 1), coordinates[id]}; }\nfragment float4 fragment_main(VertexOut input [[stage_in]], device const uint *pixels [[buffer(0)]]) { uint x = min(uint(input.uv.x * float(FRAME_WIDTH)), FRAME_WIDTH - 1); uint y = min(uint(input.uv.y * float(FRAME_HEIGHT)), FRAME_HEIGHT - 1); uint color = pixels[y * FRAME_WIDTH + x]; return float4(float((color >> 16) & 255u) / 255.0, float((color >> 8) & 255u) / 255.0, float(color & 255u) / 255.0, 1.0); }\n\0")
+        return move source
+    }
+
+    fn metal_function(library: RawPtr<void>, name: take Text) -> RawPtr<void> {
+        let value = objective_string(move name)
+        unsafe {
+            return objc_pointer_object(library, named_selector("newFunctionWithName:\0"), value)
+        }
+    }
+
+    fn open_metal_pipeline(device: RawPtr<void>) -> MetalPipeline {
+        unsafe {
+            let source = objective_string(metal_shader_source())
+            let null = null_object()
+            let library = objc_pointer_three_objects(
+                device, named_selector("newLibraryWithSource:options:error:\0"), source, null, null
+            )
+            let vertex = metal_function(library, "vertex_main\0")
+            let fragment = metal_function(library, "fragment_main\0")
+            let class = named_class("MTLRenderPipelineDescriptor\0")
+            let allocated = objc_pointer(class, named_selector("alloc\0"))
+            let descriptor = objc_pointer(allocated, named_selector("init\0"))
+            objc_unit_object(descriptor, named_selector("setVertexFunction:\0"), vertex)
+            objc_unit_object(descriptor, named_selector("setFragmentFunction:\0"), fragment)
+            let attachments = objc_pointer(descriptor, named_selector("colorAttachments\0"))
+            let attachment = objc_pointer_u64(attachments, named_selector("objectAtIndexedSubscript:\0"), 0)
+            objc_unit_u64(attachment, named_selector("setPixelFormat:\0"), METAL_BGRA8_UNORM)
+            let pipeline = objc_pointer_two_objects(
+                device, named_selector("newRenderPipelineStateWithDescriptor:error:\0"), descriptor, null
+            )
+            let buffer = objc_pointer_u64_u64(device, named_selector("newBufferWithLength:options:\0"), u64.from(FRAMEBUFFER_BYTES), 0)
+            let data = objc_u32_pointer(buffer, named_selector("contents\0"))
+            release_object(descriptor)
+            release_object(fragment)
+            release_object(vertex)
+            release_object(library)
+            return MetalPipeline {
+                pipeline: pipeline, buffer: buffer, data: data
+            }
+        }
+    }
+
+    fn open_metal() -> MetalSurface {
+        unsafe {
+            let available = metal_system_device()
+            let device = objc_pointer(available, named_selector("retain\0"))
+            let queue = objc_pointer(device, named_selector("newCommandQueue\0"))
+            let layer_class = named_class("CAMetalLayer\0")
+            let available_layer = objc_pointer(layer_class, named_selector("layer\0"))
+            let layer = objc_pointer(available_layer, named_selector("retain\0"))
+            objc_unit_object(layer, named_selector("setDevice:\0"), device)
+            objc_unit_u64(layer, named_selector("setPixelFormat:\0"), METAL_BGRA8_UNORM)
+            objc_unit_bool(layer, named_selector("setFramebufferOnly:\0"), true)
+            objc_unit_size(layer, named_selector("setDrawableSize:\0"), f64.from(video::WIDTH * DISPLAY_SCALE), f64.from(video::HEIGHT * DISPLAY_SCALE))
+            var built = open_metal_pipeline(device)
+            let metal = MetalSurface {
+                device: device,
+                layer: layer,
+                queue: queue,
+                pipeline: built.pipeline,
+                buffer: built.buffer,
+                data: built.data
+            }
+            built.pipeline = null_object()
+            built.buffer = null_object()
+            built.data = RawPtr<u32>.from_address(0)
+            return move metal
+        }
+    }
+
+    fn metal_ready(metal: MetalSurface) -> bool {
+        unsafe {
+            let null = null_object()
+            if metal.data == RawPtr<u32>.from_address(0) {
+                return false
+            }
+            if metal.device == null {
+                return false
+            }
+            if metal.layer == null {
+                return false
+            }
+            if metal.queue == null {
+                return false
+            }
+            if metal.pipeline == null {
+                return false
+            }
+            if metal.buffer == null {
+                return false
+            }
+            return true
+        }
+    }
+
+    unsafe fn metal_layer(metal: MetalSurface) -> RawPtr<void> {
+        unsafe {
+            return metal.layer
+        }
+    }
+
+    fn metal_copy_frame(metal: MetalSurface, pixels: Vec<u32>) -> void {
+        if metal_ready(metal) == false {
+            return
+        }
+        var index: usize = 0
+        unsafe {
+            while index < pixels.length() && index < video::PIXELS {
+                metal.data.offset(index).write(pixels[index])
+                index = index + 1
+            }
+        }
+        return
+    }
+
+    fn metal_present(metal: MetalSurface) -> u32 {
+        unsafe {
+            let drawable = objc_pointer(metal.layer, named_selector("nextDrawable\0"))
+            if drawable == null_object() {
+                return 0
+            }
+            let pass_class = named_class("MTLRenderPassDescriptor\0")
+            let pass = objc_pointer(pass_class, named_selector("renderPassDescriptor\0"))
+            let attachments = objc_pointer(pass, named_selector("colorAttachments\0"))
+            let attachment = objc_pointer_u64(attachments, named_selector("objectAtIndexedSubscript:\0"), 0)
+            let texture = objc_pointer(drawable, named_selector("texture\0"))
+            objc_unit_object(attachment, named_selector("setTexture:\0"), texture)
+            objc_unit_u64(attachment, named_selector("setLoadAction:\0"), METAL_LOAD_CLEAR)
+            objc_unit_u64(attachment, named_selector("setStoreAction:\0"), METAL_STORE)
+            let command = objc_pointer(metal.queue, named_selector("commandBuffer\0"))
+            let encoder = objc_pointer_object(command, named_selector("renderCommandEncoderWithDescriptor:\0"), pass)
+            objc_unit_object(encoder, named_selector("setRenderPipelineState:\0"), metal.pipeline)
+            objc_unit_object_u64_u64(encoder, named_selector("setFragmentBuffer:offset:atIndex:\0"), metal.buffer, 0, 0)
+            objc_unit_u64_u64_u64(encoder, named_selector("drawPrimitives:vertexStart:vertexCount:\0"), METAL_TRIANGLE_STRIP, 0, 4)
+            objc_unit(encoder, named_selector("endEncoding\0"))
+            objc_unit_object(command, named_selector("presentDrawable:\0"), drawable)
+            objc_unit(command, named_selector("commit\0"))
+            return 0
+        }
+    }
+}

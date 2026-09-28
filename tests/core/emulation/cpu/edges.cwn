@@ -1,0 +1,305 @@
+fn test_arm_data_cycles(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[14] = 134217760
+    if cpu::arm::execute_arm(emulator, 3785420814) != 3 {
+        return 133
+    }
+    if emulator.cpu.registers[15] != 134217760 {
+        return 134
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[14] = 134217760
+    emulator.cpu.registers[0] = 0
+    if cpu::arm::execute_arm(emulator, 3785420830) != 4 {
+        return 135
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[15] = 134217732
+    emulator.cpu.registers[1] = 0
+    emulator.cpu.registers[2] = 0
+    if cpu::arm::execute_arm(emulator, 3767468561) != 2 {
+        return 136
+    }
+    if emulator.cpu.registers[0] != 134217740 {
+        return 137
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[15] = 134217732
+    emulator.cpu.registers[1] = 0
+    emulator.cpu.registers[2] = 0
+    cpu::arm::execute_arm(emulator, 3766551071)
+    if emulator.cpu.registers[0] != 134217740 {
+        return 156
+    }
+    emulator.cpu = cpu::new()
+    if cpu::arm::execute_arm(emulator, 3818913808) != 1 {
+        return 337
+    }
+    if emulator.cpu.registers[0] != 16 {
+        return 338
+    }
+    return 0
+}
+
+fn test_arm_word_load_access(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[1] = 134217728
+    memory::write16(emulator.memory, 67109380, 0)
+    emulator.access_penalty_cycles = 0
+    emulator.gamepak_seq_valid = false
+    emulator.bus_charging = true
+    if cpu::arm::execute_arm(emulator, 3851485184) != 3 {
+        return 339
+    }
+    emulator.bus_charging = false
+    if emulator.access_penalty_cycles != 6 {
+        return 340
+    }
+    if emulator.cpu.registers[0] != memory::read32(emulator.memory, emulator.cartridge, 134217728) {
+        return 341
+    }
+    return 0
+}
+
+fn test_arm_signed_byte_postindex_decode(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 4
+    emulator.cpu.registers[1] = 3
+    emulator.cpu.registers[7] = 50331664
+    memory::write8(emulator.memory, 50331664, 254)
+    if cpu::arm::execute_arm(emulator, 3772190929) != 3 {
+        return 351
+    }
+    if emulator.cpu.registers[1] != 4294967294 {
+        return 352
+    }
+    if emulator.cpu.registers[7] != 50331665 {
+        return 353
+    }
+    return 0
+}
+
+fn test_thumb_halfword_load_access(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 134217728
+    memory::write16(emulator.memory, 67109380, 17175)
+    emulator.access_penalty_cycles = 0
+    emulator.gamepak_seq_valid = false
+    emulator.bus_charging = true
+    if cpu::thumb::transfer_immediate(emulator, 34817, true) != 3 {
+        return 344
+    }
+    emulator.bus_charging = false
+    if emulator.access_penalty_cycles != 3 {
+        return 345
+    }
+    if emulator.cpu.registers[1] != u32.from(cartridge::read16(emulator.cartridge, 134217728)) {
+        return 346
+    }
+    return 0
+}
+
+fn test_arm_multiply_cycles(emulator: write emulator::State) -> u32 {
+    let multipliers: [u32; 7] = [127, 4660, 1193046, 305419896, 4294967168, 4294934528, 4286578688]
+    let cycles: [u32; 7] = [2, 3, 4, 5, 2, 3, 4]
+    var index: usize = 0
+    while index < 7 {
+        emulator.cpu = cpu::new()
+        emulator.cpu.registers[0] = 3
+        emulator.cpu.registers[1] = multipliers[index]
+        if cpu::arm::execute_arm(emulator, 3758096784) != cycles[index] {
+            return 138
+        }
+        index = index + 1
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 3
+    emulator.cpu.registers[1] = 305419896
+    emulator.cpu.registers[2] = 5
+    if cpu::arm::execute_arm(emulator, 3760333200) != 6 {
+        return 139
+    }
+    if emulator.cpu.registers[2] != 916259693 {
+        return 140
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 3
+    emulator.cpu.registers[1] = 127
+    if cpu::arm::execute_arm(emulator, 3766690192) != 3 {
+        return 141
+    }
+    return 0
+}
+
+fn test_arm_block_edges(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 33554432
+    emulator.cpu.registers[1] = 286331153
+    cpu::arm::execute_arm(emulator, 3902799875)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554432) != 33554432 {
+        return 142
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 33554436) != 286331153 {
+        return 143
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 286331153
+    emulator.cpu.registers[1] = 33554448
+    cpu::arm::execute_arm(emulator, 3902865411)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554448) != 286331153 {
+        return 144
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 33554452) != 33554456 {
+        return 145
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 33554464
+    memory::write32(emulator.memory, 33554464, 1)
+    memory::write32(emulator.memory, 33554468, 2)
+    if cpu::arm::execute_arm(emulator, 3901751302) != 4 {
+        return 146
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 33554464
+    memory::write32(emulator.memory, 33554468, 134217728)
+    if cpu::arm::execute_arm(emulator, 3901784066) != 6 {
+        return 147
+    }
+    return 0
+}
+
+fn test_force_user_block(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    cpu::switch_mode(emulator.cpu, 19)
+    emulator.cpu.registers[13] = 50360320
+    cpu::switch_mode(emulator.cpu, 16)
+    emulator.cpu.registers[13] = 286331153
+    cpu::switch_mode(emulator.cpu, 19)
+    emulator.cpu.registers[0] = 33554560
+    cpu::arm::execute_arm(emulator, 3904905216)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554560) != 286331153 {
+        return 148
+    }
+    if emulator.cpu.registers[13] != 50360320 {
+        return 149
+    }
+    return 0
+}
+
+fn test_thumb_multiple_edges(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 286331153
+    emulator.cpu.registers[1] = 33554688
+    cpu::thumb::multiple(emulator, 49411)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554688) != 286331153 {
+        return 150
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 33554692) != 33554696 {
+        return 151
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 33554752
+    emulator.cpu.registers[1] = 286331153
+    cpu::thumb::multiple(emulator, 49154)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554752) != 286331153 {
+        return 152
+    }
+    if emulator.cpu.registers[0] != 33554756 {
+        return 153
+    }
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[0] = 33554816
+    emulator.cpu.registers[15] = 134217742
+    cpu::thumb::multiple(emulator, 49152)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554816) != 134217746 {
+        return 154
+    }
+    if emulator.cpu.registers[0] != 33554880 {
+        return 155
+    }
+    return 0
+}
+
+fn test_thumb_dispatch(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    if cpu::thumb::execute_thumb(emulator, 8193) != 1 {
+        return 435
+    }
+    if emulator.cpu.registers[0] != 1 {
+        return 436
+    }
+    emulator.cpu.registers[13] = 50331648
+    emulator.cpu.registers[0] = 287454020
+    if cpu::thumb::execute_thumb(emulator, 36864) != 3 {
+        return 437
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 50331648) != 287454020 {
+        return 438
+    }
+    if cpu::thumb::execute_thumb(emulator, 45057) != 1 {
+        return 439
+    }
+    if emulator.cpu.registers[13] != 50331652 {
+        return 440
+    }
+    return 0
+}
+
+fn test_unknown_execution_continues(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    emulator.cpu.registers[15] = 33554432
+    memory::write32(emulator.memory, 33554432, 3992977408)
+    if emulator::run_steps(emulator, 1) != 0 {
+        return 319
+    }
+    if emulator.unknown_instructions != 1 {
+        return 320
+    }
+    emulator.cpu.registers[15] = 33554436
+    memory::write32(emulator.memory, 33554436, 4009754751)
+    if emulator::run_steps(emulator, 1) != 0 {
+        return 321
+    }
+    if emulator.unsupported_swi != 1 {
+        return 322
+    }
+    emulator.unknown_instructions = 0
+    emulator.unsupported_swi = 0
+    bios::hard_reset(emulator)
+    return 0
+}
+
+fn test_sign_extension() -> u32 {
+    if bits::sign_extend_u32(127, 8) != 127 {
+        return 323
+    }
+    if bits::sign_extend_u32(128, 8) != 4294967168 {
+        return 324
+    }
+    if bits::sign_extend_u32(2048, 12) != 4294965248 {
+        return 325
+    }
+    if bits::sign_extend_u32(1, 1) != 4294967295 {
+        return 326
+    }
+    if bits::sign_extend_u32(2309737967, 32) != 2309737967 {
+        return 327
+    }
+    return 0
+}
+
+fn test_cpu_edges(emulator: write emulator::State) -> u32 {
+    let sign_extension = test_sign_extension()
+    if sign_extension != 0 {
+        return sign_extension
+    }
+    let cases = [test_arm_data_cycles, test_arm_word_load_access, test_arm_signed_byte_postindex_decode, test_thumb_halfword_load_access, test_arm_multiply_cycles, test_arm_block_edges, test_force_user_block, test_thumb_multiple_edges, test_thumb_dispatch, test_unknown_execution_continues]
+    loan read cases as values {
+        let result = run_emulator_cases(emulator, values)
+        if result != 0 {
+            return result
+        }
+    }
+    emulator.cpu = cpu::new()
+    0
+}

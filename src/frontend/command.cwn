@@ -1,0 +1,85 @@
+module cli {
+    fn run_command(arguments: Arguments) -> u32 {
+        let selection = match parse_command(arguments) {
+            Ok(value) => value
+            Err(code) => {
+                return code
+            }
+        }
+        let loaded = cartridge::load(arguments[1])
+        match move loaded {
+            Err(code) => code
+            Ok(cartridge) => {
+                var emulator = emulator::new(move cartridge)
+                let backup = backup::load(arguments[1], emulator.memory)
+                if backup != 0 {
+                    return backup
+                }
+                let prepared = prepare_bios(arguments, emulator, selection.bios)
+                if prepared != 0 {
+                    return prepared
+                }
+                execute(arguments, move emulator, selection)
+            }
+        }
+    }
+
+    fn execute(arguments: Arguments, emulator: take emulator::State, selection: Selection) -> u32 {
+        match selection.run {
+            Run::Interactive => {
+                let native = app::run_native_frontend(move emulator)
+                match move native {
+                    Some(finished) => finish_native(arguments[1], move finished)
+                    None => NATIVE_UNAVAILABLE
+                }
+            }
+            _ => {
+                var running = move emulator
+                let result = execute_headless(arguments, running, selection)
+                let saved = backup::save_backup(arguments[1], running.memory)
+                if result != 0 {
+                    return result
+                }
+                saved
+            }
+        }
+    }
+
+    fn finish_native(path: TextView, result: take app::Result) -> u32 {
+        let saved = backup::save_backup(path, result.emulator.memory)
+        if result.code != 0 {
+            return result.code
+        }
+        saved
+    }
+
+    fn prepare_bios(arguments: Arguments, emulator: write emulator::State, selected: Option<usize>) -> u32 {
+        let index = match selected {
+            Some(value) => value
+            None => {
+                return 0
+            }
+        }
+        let loaded = bios::load(arguments[index], emulator.memory)
+        if loaded != 0 {
+            return loaded
+        }
+        emulator.cpu = cpu::new_bios_cpu()
+        0
+    }
+
+    fn execute_headless(arguments: Arguments, emulator: write emulator::State, selection: Selection) -> u32 {
+        let result = match selection.run {
+            Run::Frames(count) => emulator::run_frames(emulator, count)
+            Run::Steps(count) => emulator::run_steps(emulator, count)
+            Run::Interactive => 0
+        }
+        if result != 0 {
+            return result
+        }
+        match selection.screenshot {
+            Some(index) => screenshot::save_frame_bmp(arguments[index], emulator.ppu)
+            None => 0
+        }
+    }
+}

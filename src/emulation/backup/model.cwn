@@ -1,0 +1,34 @@
+module backup {
+    copy enum Kind {
+        Absent, Sram, Flash64, Flash128, Eeprom
+    }
+    copy enum FlashState {
+        Ready, UnlockSecond, Command, Program, SelectBank, EraseUnlock, EraseUnlockSecond, EraseCommand
+    }
+    const SRAM_SIZE: usize = 32 * 1024
+    const FLASH_BANK_SIZE: usize = 64 * 1024
+    const FLASH_CAPACITY: usize = 2 * FLASH_BANK_SIZE
+    const EEPROM_SMALL_SIZE: usize = 512
+    const EEPROM_LARGE_SIZE: usize = 8 * 1024
+    const EEPROM_SMALL_ADDRESS_BITS: usize = 6
+    const EEPROM_LARGE_ADDRESS_BITS: usize = 14
+
+    fn fixed_size(kind: Kind) -> usize {
+        match kind {
+            Kind::Sram => SRAM_SIZE
+            Kind::Flash64 => FLASH_BANK_SIZE
+            Kind::Flash128 => FLASH_CAPACITY
+            _ => 0
+        }
+    }
+
+    fn kind_from_size(size: usize) -> Kind {
+        match size {
+            EEPROM_SMALL_SIZE | EEPROM_LARGE_SIZE => Kind::Eeprom()
+            SRAM_SIZE => Kind::Sram()
+            FLASH_BANK_SIZE => Kind::Flash64()
+            FLASH_CAPACITY => Kind::Flash128()
+            _ => Kind::Absent()
+        }
+    }
+}

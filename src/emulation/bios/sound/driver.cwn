@@ -1,0 +1,189 @@
+module bios {
+    module sound {
+        fn bias(emulator: write emulator::State) -> void {
+            let target = u16.from(emulator.cpu.registers[0] & 511) << 1
+            let current = memory::io_read16(emulator.memory, audio::BIAS_CONTROL)
+            let level = current & 1022
+            var next = level
+            if level < target {
+                next = level + 2
+                if next > target {
+                    next = target
+                }
+            }
+            if level > target {
+                next = level - 2
+                if next < target {
+                    next = target
+                }
+            }
+            memory::write16(emulator.memory, memory::io_address(audio::BIAS_CONTROL), current & 64513 | next)
+            return
+        }
+
+        fn driver_init(emulator: write emulator::State) -> void {
+            let area = emulator.cpu.registers[0]
+            if area == 0 {
+                return
+            }
+            memory::write32(emulator.memory, bios::sound::WORK_AREA_POINTER, area)
+            memory::write32(emulator.memory, area, bios::sound::DRIVER_READY)
+            let soundbias = memory::io_read16(emulator.memory, audio::BIAS_CONTROL)
+            memory::write16(emulator.memory, memory::io_address(audio::BIAS_CONTROL), soundbias & 1023 | 16384)
+            default(emulator, area + 6, 8)
+            default(emulator, area + 7, 15)
+            default(emulator, area + 4, 1)
+            default(emulator, area + 12, 47)
+            if memory::read8(emulator.memory, emulator.cartridge, area + 8) == 0 {
+                set_frequency(emulator, area, 4)
+            }
+            return
+        }
+
+        fn default(emulator: write emulator::State, address: u32, value: u8) -> void {
+            if memory::read8(emulator.memory, emulator.cartridge, address) == 0 {
+                memory::write8(emulator.memory, address, value)
+            }
+            return
+        }
+
+        fn driver_mode(emulator: write emulator::State) -> void {
+            let area = area(emulator)
+            if area == 0 {
+                return
+            }
+            let mode = emulator.cpu.registers[0]
+            if mode & 128 != 0 {
+                memory::write8(emulator.memory, area + 5, u8.from(mode & 127))
+            }
+            let channels = u8.from(mode >> 8 & 15)
+            if channels != 0 {
+                memory::write8(emulator.memory, area + 6, channels)
+            }
+            let volume = u8.from(mode >> 12 & 15)
+            if volume != 0 {
+                memory::write8(emulator.memory, area + 7, volume)
+            }
+            let frequency = u8.from(mode >> 16 & 15)
+            if frequency != 0 {
+                set_frequency(emulator, area, frequency)
+            }
+            memory::write8(emulator.memory, area + 9, u8.from(mode >> 20 & 11))
+            return
+        }
+
+        fn set_frequency(emulator: write emulator::State, area: u32, index: u8) -> void {
+            let samples = samples(index)
+            if samples == 0 {
+                return
+            }
+            let dma_period = PCM_DMA_BUFFER_SAMPLES / samples
+            let pcm_frequency = (FRAME_RATE_SCALED * samples + FRAME_RATE_SCALE / 2) / FRAME_RATE_SCALE
+            let divisor = (u32.from(video::CLOCK_HZ) / pcm_frequency + 1) >> 1
+            let timer_period = video::CYCLES_PER_FRAME / samples
+            memory::write8(emulator.memory, area + 8, index)
+            memory::write32(emulator.memory, area + 16, samples)
+            memory::write32(emulator.memory, area + 20, pcm_frequency)
+            memory::write32(emulator.memory, area + 24, divisor)
+            memory::write8(emulator.memory, area + 11, u8.from(dma_period))
+            memory::write16(emulator.memory, memory::io_address(timers::BASE + timers::CONTROL_OFFSET), 0)
+            memory::write16(emulator.memory, memory::io_address(timers::BASE), u16.from(u32.from(timers::COUNTER_RANGE) - timer_period))
+            memory::write16(emulator.memory, memory::io_address(timers::BASE + timers::CONTROL_OFFSET), timers::ENABLE)
+            return
+        }
+
+        fn samples(index: u8) -> u32 {
+            if index == 0 {
+                return 0
+            }
+            if index > 12 {
+                return 0
+            }
+            let samples: [u32; 12] = [96, 132, 176, 224, 264, 304, 352, 448, 528, 608, 672, 704]
+            return samples[usize.from(index - 1)]
+        }
+
+        fn driver_main(emulator: write emulator::State) -> void {
+            let area = area(emulator)
+            if area == 0 {
+                return
+            }
+            let target = memory::read32(emulator.memory, emulator.cartridge, area + 32)
+            if call_target(emulator.cpu, target) == false {
+                return
+            }
+            memory::write32(emulator.memory, area, bios::sound::DRIVER_BUSY)
+            return
+        }
+
+        fn driver_vsync(emulator: write emulator::State) -> void {
+            let area = area(emulator)
+            if area == 0 {
+                return
+            }
+            let identifier = memory::read32(emulator.memory, emulator.cartridge, area)
+            if identifier < bios::sound::DRIVER_READY {
+                return
+            }
+            if identifier > bios::sound::DRIVER_BUSY {
+                return
+            }
+            let counter = memory::read8(emulator.memory, emulator.cartridge, area + 4)
+            var next: u8 = 255
+            if counter != 0 {
+                next = counter - 1
+            }
+            memory::write8(emulator.memory, area + 4, next)
+            if next != 0 {
+                return
+            }
+            var period = memory::read8(emulator.memory, emulator.cartridge, area + 11)
+            if period == 0 {
+                period = 1
+            }
+            memory::write8(emulator.memory, area + 4, period)
+            dma_reset(emulator)
+            return
+        }
+
+        fn dma_reset(emulator: write emulator::State) -> void {
+            var channel: usize = 1
+            while channel <= 2 {
+                let address = memory::io_address(dma::BASE) + u32.from(channel) * 12
+                let control = memory::io_read16(emulator.memory, dma::BASE + channel * 12 + 10)
+                if control & 512 != 0 {
+                    dma::write16(emulator, address + 8, 4)
+                    dma::write16(emulator, address + 10, 33856)
+                    dma::transfer(emulator, channel)
+                    dma::write16(emulator, address + 10, 1024)
+                    dma::write16(emulator, address + 10, 46592)
+                }
+                channel = channel + 1
+            }
+            return
+        }
+
+        fn vsync_set(emulator: write emulator::State, enabled: bool) -> void {
+            let area = area(emulator)
+            if area == 0 {
+                return
+            }
+            let identifier = memory::read32(emulator.memory, emulator.cartridge, area)
+            if identifier >= bios::sound::DRIVER_READY {
+                if identifier <= bios::sound::DRIVER_BUSY {
+                    var next: u32 = bios::sound::DRIVER_READY
+                    if enabled {
+                        next = bios::sound::DRIVER_BUSY
+                    }
+                    memory::write32(emulator.memory, area, next)
+                }
+            }
+            var counter: u8 = 0
+            if enabled {
+                counter = 1
+            }
+            memory::write8(emulator.memory, area + 4, counter)
+            return
+        }
+    }
+}

@@ -1,0 +1,149 @@
+module dma {
+    const BASE: usize = 0x0b0
+    const CHANNELS: usize = 4
+    const STRIDE: usize = 12
+    const END: usize = BASE + CHANNELS * STRIDE
+    const SOURCE: usize = 0
+    const DESTINATION: usize = 4
+    const COUNT: usize = 8
+    const CONTROL: usize = 10
+    const ENABLE: u16 = 1 << 15
+    const IRQ_ENABLE: u16 = 1 << 14
+    const WORD_TRANSFER: u16 = 1 << 10
+    const REPEAT: u16 = 1 << 9
+    const TIMING_SHIFT: u16 = 12
+    const MODE_MASK: u16 = 3
+    const DESTINATION_SHIFT: u16 = 5
+    const SOURCE_SHIFT: u16 = 7
+    const CONTROL_MASK: u16 = 0xf7e0
+    const TIMING_MASK: u16 = MODE_MASK << TIMING_SHIFT
+    const DESTINATION_MASK: u16 = MODE_MASK << DESTINATION_SHIFT
+    const DESTINATION_FIXED: u16 = 2 << DESTINATION_SHIFT
+    const IMMEDIATE: u32 = 0
+    const VBLANK: u32 = 1
+    const HBLANK: u32 = 2
+    const SPECIAL: u16 = 3
+
+    const ADDRESS_HIGH_MASK: u16 = 0x0fff
+    const INTERNAL_ADDRESS_HIGH_MASK: u16 = 0x07ff
+    const SHORT_COUNT_MASK: u16 = 0x3fff
+    const SHORT_COUNT_LIMIT: u32 = 0x4000
+    const LONG_COUNT_LIMIT: u32 = 0x10000
+    const FIFO_TRANSFER_WORDS: u32 = 4
+    const ADDRESS_INCREMENT: u16 = 0
+    const ADDRESS_DECREMENT: u16 = 1
+    const ADDRESS_FIXED: u16 = 2
+    const ADDRESS_RELOAD: u16 = 3
+    const SOURCE_LOW_REGISTER: usize = SOURCE / 2
+    const SOURCE_HIGH_REGISTER: usize = SOURCE_LOW_REGISTER + 1
+    const DESTINATION_LOW_REGISTER: usize = DESTINATION / 2
+    const DESTINATION_HIGH_REGISTER: usize = DESTINATION_LOW_REGISTER + 1
+    const COUNT_REGISTER: usize = COUNT / 2
+    const IRQ_FIRST: usize = 8
+
+    fn register_address(address: u32) -> bool {
+        if address < memory::io_address(dma::BASE) {
+            return false
+        }
+        return address <= memory::io_address(dma::END - 2)
+    }
+
+    fn write16(emulator: write emulator::State, address: u32, value: u16) -> void {
+        let aligned = address & memory::HALFWORD_ADDRESS_MASK
+        let channel = usize.from((aligned - memory::io_address(dma::BASE)) / u32.from(STRIDE))
+        let register = usize.from((aligned - memory::io_address(dma::BASE)) % u32.from(STRIDE) / 2)
+        let offset: usize = BASE + channel * STRIDE
+        if register == SOURCE_LOW_REGISTER {
+            memory::io_store16(emulator.memory, offset, value);
+            return
+        }
+        if register == SOURCE_HIGH_REGISTER {
+            var high = value & ADDRESS_HIGH_MASK
+            if channel == 0 {
+                high = value & INTERNAL_ADDRESS_HIGH_MASK
+            }
+            memory::io_store16(emulator.memory, offset + 2, high)
+            return
+        }
+        if register == DESTINATION_LOW_REGISTER {
+            memory::io_store16(emulator.memory, offset + DESTINATION, value);
+            return
+        }
+        if register == DESTINATION_HIGH_REGISTER {
+            var high = value & INTERNAL_ADDRESS_HIGH_MASK
+            if channel == 3 {
+                high = value & ADDRESS_HIGH_MASK
+            }
+            memory::io_store16(emulator.memory, offset + 6, high)
+            return
+        }
+        if register == COUNT_REGISTER {
+            var count = value & SHORT_COUNT_MASK
+            if channel == 3 {
+                count = value
+            }
+            memory::io_store16(emulator.memory, offset + COUNT, count)
+            return
+        }
+        write_control(emulator, channel, value)
+        return
+    }
+
+    fn write_control(emulator: write emulator::State, channel: usize, value: u16) -> void {
+        let offset: usize = BASE + channel * STRIDE
+        let previous = memory::io_read16(emulator.memory, offset + CONTROL)
+        var control = value & CONTROL_MASK
+        if channel == 0 {
+            if control >> TIMING_SHIFT & MODE_MASK == SPECIAL {
+                control = control & ~TIMING_MASK
+            }
+        }
+        if is_fifo(emulator.memory, channel, control) {
+            control = control |(WORD_TRANSFER | REPEAT)
+            control = control & ~DESTINATION_MASK | DESTINATION_FIXED
+        }
+        memory::io_store16(emulator.memory, offset + CONTROL, control)
+        refresh_timing(emulator.devices, channel, control)
+        if control & ENABLE == 0 {
+            emulator.devices.dma_initialized[channel] = false;
+            return
+        }
+        if previous & ENABLE == 0 {
+            emulator.devices.dma_initialized[channel] = false
+        }
+        return
+    }
+
+    fn refresh_timing(devices: write devices::State, channel: usize, control: u16) -> void {
+        let bit: u8 = 1 << u8.from(channel)
+        var timing: usize = 0
+        while timing < 3 {
+            devices.dma_timing[timing] = devices.dma_timing[timing] & ~bit
+            timing = timing + 1
+        }
+        let selected = usize.from(control >> TIMING_SHIFT & MODE_MASK)
+        if control & ENABLE != 0 {
+            if selected < 3 {
+                devices.dma_timing[selected] = devices.dma_timing[selected] | bit
+            }
+        }
+        return
+    }
+
+    fn is_fifo(memory: memory::State, channel: usize, control: u16) -> bool {
+        if channel == 0 {
+            return false
+        }
+        if channel == 3 {
+            return false
+        }
+        if control >> TIMING_SHIFT & MODE_MASK != SPECIAL {
+            return false
+        }
+        let destination = memory::io_read32(memory, dma::BASE + channel * STRIDE + 4) & memory::WORD_ADDRESS_MASK
+        if destination == memory::io_address(audio::FIFO_A) {
+            return true
+        }
+        return destination == memory::io_address(audio::FIFO_B)
+    }
+}

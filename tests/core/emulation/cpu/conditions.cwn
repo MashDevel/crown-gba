@@ -1,0 +1,21 @@
+fn test_arm_conditions(emulator: write emulator::State) -> u32 {
+    let expected: [u32; 16] = [22186, 27242, 21926, 26982, 26281, 27241, 26277, 27237, 27290, 22106, 27030, 21846, 27289, 26201, 27285, 26197]
+    let saved = emulator.cpu.cpsr
+    var flags: usize = 0
+    while flags < 16 {
+        emulator.cpu.cpsr = u32.from(flags) << 28
+        var condition: u32 = 0
+        while condition < 16 {
+            if cpu::arm::condition(emulator.cpu, condition) !=(expected[flags] &(1 << condition) != 0) {
+                return 190
+            }
+            condition = condition + 1
+        }
+        flags = flags + 1
+    }
+    if cpu::arm::condition(emulator.cpu, 16) {
+        return 191
+    }
+    emulator.cpu.cpsr = saved
+    0
+}

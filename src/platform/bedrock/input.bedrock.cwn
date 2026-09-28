@@ -1,0 +1,40 @@
+module platform {
+    struct BedrockInput {
+        bytes: Vec<u8>, pressed: u16, running: bool
+    }
+
+    fn bedrock_input() -> BedrockInput {
+        return BedrockInput {
+            bytes: std::bytes::filled(10, 0), pressed: 0, running: true
+        }
+    }
+
+    fn bedrock_key_mask(usage: u8) -> u16 {
+        let keys: [u8; 10] = [29, 27, 229, 40, 79, 80, 82, 81, 22, 4]
+        for index in 0..10 {
+            if keys[index] == usage {
+                return u16.from(1) << u16.from(index)
+            }
+        }
+        return 0
+    }
+
+    fn poll_bedrock(input: write BedrockInput) -> void {
+        unsafe {
+            while bedrock_event(input.bytes.as_raw()) != 0 {
+                let kind = input.bytes[0]
+                let value = input.bytes[1]
+                if kind == 8 && value == 41 {
+                    input.running = false
+                }
+                let mask = bedrock_key_mask(value)
+                if kind == 8 {
+                    input.pressed = input.pressed | mask
+                }
+                if kind == 9 {
+                    input.pressed = input.pressed & ~mask
+                }
+            }
+        }
+    }
+}

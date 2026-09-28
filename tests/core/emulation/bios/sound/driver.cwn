@@ -1,0 +1,183 @@
+fn test_sound_bias(emulator: write emulator::State) -> u32 {
+    memory::io_store16(emulator.memory, 136, 16896)
+    emulator.cpu.registers[0] = 264
+    bios::handle_swi(emulator, 25)
+    if memory::io_read16(emulator.memory, 136) != 16898 {
+        return 261
+    }
+    bios::handle_swi(emulator, 25)
+    bios::handle_swi(emulator, 25)
+    bios::handle_swi(emulator, 25)
+    if memory::io_read16(emulator.memory, 136) != 16904 {
+        return 262
+    }
+    emulator.cpu.registers[0] = 258
+    bios::handle_swi(emulator, 25)
+    if memory::io_read16(emulator.memory, 136) != 16902 {
+        return 263
+    }
+    return 0
+}
+
+fn test_sound_driver_init(emulator: write emulator::State) -> u32 {
+    let area: u32 = 50356224
+    emulator.cpu.registers[0] = area
+    bios::handle_swi(emulator, 26)
+    if memory::read32(emulator.memory, emulator.cartridge, 50364400) != area {
+        return 264
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area) != 1752395091 {
+        return 265
+    }
+    if memory::io_read16(emulator.memory, 136) != 16896 {
+        return 266
+    }
+    let metadata = test_sound_driver_metadata(emulator, area);
+    if metadata != 0 {
+        return metadata
+    }
+    if memory::read16(emulator.memory, emulator.cartridge, 67109120) != 64282 {
+        return 274
+    }
+    return 0
+}
+
+fn test_sound_driver_mode(emulator: write emulator::State) -> u32 {
+    let area: u32 = 50356224
+    emulator.cpu.registers[0] = 10046101
+    bios::handle_swi(emulator, 27)
+    if memory::read8(emulator.memory, emulator.cartridge, area + 5) != 21 {
+        return 275
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 6) != 10 {
+        return 276
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 7) != 4 {
+        return 277
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 8) != 9 {
+        return 278
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 9) != 9 {
+        return 279
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area + 16) != 528 {
+        return 280
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area + 20) != 31536 {
+        return 281
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area + 24) != 266 {
+        return 282
+    }
+    if memory::read16(emulator.memory, emulator.cartridge, 67109120) != 65004 {
+        return 283
+    }
+    return 0
+}
+
+fn test_sound_driver_main(emulator: write emulator::State) -> u32 {
+    let area: u32 = 50356224
+    memory::write32(emulator.memory, area + 32, 33554432)
+    emulator.cpu.registers[15] = 134217728
+    cpu::set_thumb(emulator.cpu, false)
+    bios::handle_swi(emulator, 28)
+    if emulator.cpu.registers[15] != 33554432 {
+        return 284
+    }
+    if emulator.cpu.registers[14] != 134217728 {
+        return 285
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area) != 1752395092 {
+        return 286
+    }
+    return 0
+}
+
+fn test_sound_driver_vsync(emulator: write emulator::State) -> u32 {
+    let area: u32 = 50356224
+    memory::write32(emulator.memory, area, 1752395091)
+    memory::write8(emulator.memory, area + 4, 2)
+    memory::write8(emulator.memory, area + 11, 3)
+    dma::write16(emulator, 67109056, 160)
+    dma::write16(emulator, 67109058, 1024)
+    dma::write16(emulator, 67109062, 46656)
+    bios::handle_swi(emulator, 29)
+    if memory::read8(emulator.memory, emulator.cartridge, area + 4) != 1 {
+        return 287
+    }
+    bios::handle_swi(emulator, 29)
+    if memory::read8(emulator.memory, emulator.cartridge, area + 4) != 3 {
+        return 288
+    }
+    if memory::io_read16(emulator.memory, 198) != 46656 {
+        return 293
+    }
+    bios::handle_swi(emulator, 40)
+    if memory::read8(emulator.memory, emulator.cartridge, area + 4) != 0 {
+        return 289
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area) != 1752395091 {
+        return 290
+    }
+    bios::handle_swi(emulator, 41)
+    if memory::read8(emulator.memory, emulator.cartridge, area + 4) != 1 {
+        return 291
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area) != 1752395092 {
+        return 292
+    }
+    return 0
+}
+
+fn test_bios_sound_driver(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    let bias = test_sound_bias(emulator)
+    if bias != 0 {
+        return bias
+    }
+    bios::hard_reset(emulator)
+    let initialized = test_sound_driver_init(emulator)
+    if initialized != 0 {
+        return initialized
+    }
+    let mode = test_sound_driver_mode(emulator)
+    if mode != 0 {
+        return mode
+    }
+    let main = test_sound_driver_main(emulator)
+    if main != 0 {
+        return main
+    }
+    let vsync = test_sound_driver_vsync(emulator)
+    if vsync != 0 {
+        return vsync
+    }
+    bios::hard_reset(emulator)
+    return 0
+}
+
+fn test_sound_driver_metadata(emulator: emulator::State, area: u32) -> u32 {
+    if memory::read8(emulator.memory, emulator.cartridge, area + 4) != 1 {
+        return 267
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 6) != 8 {
+        return 268
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 7) != 15 {
+        return 269
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, area + 8) != 4 {
+        return 270
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area + 16) != 224 {
+        return 271
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area + 20) != 13379 {
+        return 272
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, area + 24) != 627 {
+        return 273
+    }
+    0
+}

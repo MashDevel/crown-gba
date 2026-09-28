@@ -1,0 +1,79 @@
+module platform {
+    struct Audio {
+        states: Vec<pipewire::CallbackState>, events: Vec<u64>, started: u64, connection: integration::audio::Connection
+    }
+
+    fn open_audio() -> Result<Audio, u32> {
+        let library = match native::pipewire::open() {
+            Ok(value) => move value
+            Err(error) => {
+                error;
+                return Err(90)
+            }
+        }
+        var states = Vec<pipewire::CallbackState>.new()
+        var events = Vec<u64>.new()
+        prepare_audio_state(states, events, library)
+        unsafe {
+            let connection = integration::audio::connect(move library, integration::audio::Configuration {
+                    name: "Crown GBA\0".as_raw()
+                    properties: "application.name=\"Crown GBA\" media.type=Audio media.category=Playback media.role=Game node.latency=1024/48000\0".as_raw()
+                    events: RawPtr<u8>.cast(events.as_raw()), data: RawPtr<u8>.cast(states.as_raw()), rate: app::OUTPUT_RATE
+                })?
+            states[0].stream = integration::audio::stream(connection)
+            return Ok(Audio {
+                    connection: move connection, states: move states, events: move events, started: nanoseconds()
+                })
+        }
+    }
+
+    fn prepare_audio_state(states: write Vec<pipewire::CallbackState>, events: write Vec<u64>, library: std::dylib::Library) -> void {
+        unsafe {
+            let dequeue = RawPtr<fn(read RawPtr<u8>) -> RawPtr<native::pipewire::Buffer>>.cast(std::dylib::slot(library, 10)).read()
+            let queue = RawPtr<fn(read RawPtr<u8>, read RawPtr<native::pipewire::Buffer>) -> i32>.cast(std::dylib::slot(library, 11)).read()
+            states.push(pipewire::CallbackState {
+                    stream: null(), dequeue: dequeue, queue: queue, ring: app::sample_ring(), quantum: 1024, failed: false
+                })
+            let functions: [fn(write pipewire::CallbackState) -> void; 1] = [pipewire::process]
+            for index in 0..12 {
+                index;
+                events.push(0)
+            }
+            events[8] = RawPtr<u64>.cast(functions.as_raw()).read()
+        }
+    }
+
+    fn poll_audio(audio: write Audio, timeout: i32) -> u32 {
+        unsafe {
+            let state = match integration::audio::poll(audio.connection, timeout) {
+                Ok(value) => value
+                Err(code) => {
+                    return code
+                }
+            }
+            if audio.states[0].failed {
+                return 96
+            }
+            if state != 3 && nanoseconds() - audio.started > 5000000000 {
+                return 98
+            }
+        }
+        return 0
+    }
+
+    fn audio_queued(audio: Audio) -> usize {
+        return app::ring_frames(audio.states[0].ring)
+    }
+
+    fn audio_needs_frames(audio: Audio) -> bool {
+        return audio_queued(audio) < app::audio_target_frames(audio.states[0].quantum)
+    }
+
+    fn audio_render_ready(audio: Audio) -> bool {
+        return audio_queued(audio) >= usize.from(app::audio_frames_for_millis(app::OUTPUT_RATE, 20))
+    }
+
+    fn submit_audio(audio: write Audio, samples: Vec<i32>, rate: u32) -> bool {
+        return app::ring_push(audio.states[0].ring, samples, rate)
+    }
+}

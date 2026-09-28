@@ -1,0 +1,51 @@
+module platform {
+    const NANOSECONDS_PER_SECOND: u64 = 1000000000
+
+    fn read_clock_u32(buffer: host::Buffer, offset: usize) -> u32 {
+        let length = host::buffer_length(buffer)
+        if offset >= length || length - offset < 4 {
+            return 0
+        }
+        let first = u32.from(host::buffer_get(buffer, offset))
+        let second = u32.from(host::buffer_get(buffer, offset + 1)) << 8
+        let third = u32.from(host::buffer_get(buffer, offset + 2)) << 16
+        let fourth = u32.from(host::buffer_get(buffer, offset + 3)) << 24
+        return first | second | third | fourth
+    }
+
+    fn ticks_per_second() -> u64 {
+        let created = host::allocate_buffer(8)
+        match move created {
+            Ok(buffer) => {
+                var timebase = move buffer
+                var status: i32 = 0
+                unsafe {
+                    status = mach_timebase_info(host::buffer_write_pointer(timebase))
+                }
+                if status != 0 {
+                    return NANOSECONDS_PER_SECOND
+                }
+                let numerator = read_clock_u32(timebase, 0)
+                let denominator = read_clock_u32(timebase, 4)
+                if numerator == 0 {
+                    return NANOSECONDS_PER_SECOND
+                }
+                let frequency = NANOSECONDS_PER_SECOND
+                let ticks = frequency * u64.from(denominator) / u64.from(numerator)
+                if ticks == 0 {
+                    return NANOSECONDS_PER_SECOND
+                }
+                return ticks
+            }
+            Err(code) => {
+                return NANOSECONDS_PER_SECOND
+            }
+        }
+    }
+
+    fn frame_ticks(ticks_per_second: u64) -> u64 {
+        let seconds = ticks_per_second / video::CLOCK_HZ
+        let remainder = ticks_per_second % video::CLOCK_HZ
+        return seconds * u64.from(video::CYCLES_PER_FRAME) + remainder * u64.from(video::CYCLES_PER_FRAME) / video::CLOCK_HZ
+    }
+}

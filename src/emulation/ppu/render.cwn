@@ -1,0 +1,240 @@
+module video {
+    struct State {
+        framebuffer: Vec<u32>
+        rendering_enabled: bool
+        priorities: Vec<u8>
+        orders: Vec<u8>
+        layers: Vec<u8>
+        semi: Vec<u8>
+        second_colors: Vec<u32>
+        second_priorities: Vec<u8>
+        second_orders: Vec<u8>
+        second_layers: Vec<u8>
+        window_layers: Vec<u8>
+        window_effects: Vec<u8>
+        window_source: Vec<u8>
+    }
+
+    struct LayerPixel {
+        visible: bool
+        color: u32
+        priority: u8
+        order: u8
+        layer: u8
+        semi: bool
+    }
+
+    struct PixelPosition {
+        index: usize
+        x: usize
+    }
+
+    fn new() -> State {
+        return State {
+            framebuffer: memory::zero_u32(PIXELS)
+            rendering_enabled: true
+            priorities: std::bytes::filled(WIDTH, 0)
+            orders: std::bytes::filled(WIDTH, 0)
+            layers: std::bytes::filled(WIDTH, 0)
+            semi: std::bytes::filled(WIDTH, 0)
+            second_colors: memory::zero_u32(WIDTH)
+            second_priorities: std::bytes::filled(WIDTH, 0)
+            second_orders: std::bytes::filled(WIDTH, 0)
+            second_layers: std::bytes::filled(WIDTH, 0)
+            window_layers: std::bytes::filled(WIDTH, 0)
+            window_effects: std::bytes::filled(WIDTH, 0)
+            window_source: std::bytes::filled(WIDTH, 0)
+        }
+    }
+
+    fn checksum(ppu: State) -> u64 {
+        var checksum: u64 = 0
+        var index: usize = 0
+        while index < ppu.framebuffer.length() {
+            let product = checksum.wrapping_mul(FRAME_CHECKSUM_MULTIPLIER)
+            checksum = product.wrapping_add(u64.from(ppu.framebuffer[index]))
+            index = index.wrapping_add(1)
+        }
+        return checksum
+    }
+
+    fn bgr555_color(value: u16) -> u32 {
+        let red = u32.from(value & 31)
+        let green = u32.from(value >> 5 & 31)
+        let blue = u32.from(value >> 10 & 31)
+        let expanded_red = red * 255 / 31
+        let expanded_green = green * 255 / 31
+        let expanded_blue = blue * 255 / 31
+        return expanded_red << 16 | expanded_green << 8 | expanded_blue
+    }
+
+    fn palette_color(memory: memory::State, index: usize, object: bool) -> u32 {
+        var offset = index
+        if object {
+            offset = offset.wrapping_add(PALETTE_COLORS)
+        }
+        return memory.palette_colors[offset]
+    }
+
+    fn render_line(emulator: write emulator::State) -> void {
+        let line = usize.from(emulator.devices.vcount)
+        if line >= HEIGHT {
+            return
+        }
+        let control = memory::io_read16(emulator.memory, video::CONTROL)
+        if emulator.ppu.rendering_enabled == false {
+            advance_affine_references(emulator.memory, control)
+            return
+        }
+        if control & FORCED_BLANK != 0 {
+            fill_blank_line(emulator.ppu, line)
+            return
+        }
+        let backdrop = palette_color(emulator.memory, 0, false)
+        prepare_line(emulator.ppu, line, backdrop)
+        prepare_windows(emulator, line, control)
+        render_object_windows(emulator, line, control)
+        if control & OBJECT_ENABLE != 0 {
+            render_objects(emulator, line, control)
+        }
+        render_background_mode(emulator, line, control)
+        apply_effects(emulator, line)
+        if memory::io_read16(emulator.memory, video::GREEN_SWAP) & 1 != 0 {
+            green_swap(emulator.ppu, line)
+        }
+        advance_affine_references(emulator.memory, control)
+        return
+    }
+
+    fn fill_blank_line(ppu: write State, line: usize) -> void {
+        let row = line.wrapping_mul(WIDTH)
+        var x: usize = 0
+        while x < WIDTH {
+            ppu.framebuffer[row + x] = BLANK_COLOR
+            x = x.wrapping_add(1)
+        }
+        return
+    }
+
+    fn prepare_line(ppu: write State, line: usize, backdrop: u32) -> void {
+        let row = line.wrapping_mul(WIDTH)
+        var x: usize = 0
+        while x < WIDTH {
+            ppu.priorities[x] = BACKDROP_PRIORITY
+            ppu.orders[x] = BACKDROP_LAYER
+            ppu.layers[x] = BACKDROP_LAYER
+            ppu.semi[x] = 0
+            ppu.second_priorities[x] = NO_PRIORITY
+            ppu.second_orders[x] = NO_PRIORITY
+            ppu.second_layers[x] = BACKDROP_LAYER
+            ppu.framebuffer[row + x] = backdrop
+            x = x.wrapping_add(1)
+        }
+        return
+    }
+
+    fn green_swap(ppu: write State, line: usize) -> void {
+        var x: usize = 0
+        while x < WIDTH {
+            let left_index = line * WIDTH + x
+            let right_index = left_index + 1
+            let left = ppu.framebuffer[left_index]
+            let right = ppu.framebuffer[right_index]
+            ppu.framebuffer[left_index] = left & ~GREEN_CHANNEL_MASK | right & GREEN_CHANNEL_MASK
+            ppu.framebuffer[right_index] = right & ~GREEN_CHANNEL_MASK | left & GREEN_CHANNEL_MASK
+            x = x + 2
+        }
+        return
+    }
+
+    fn commit_pixel(
+        ppu: write State,
+        position: PixelPosition,
+        pixel: LayerPixel
+    ) -> void {
+        if pixel.visible == false {
+            return
+        }
+        let x = position.x
+        if x >= WIDTH {
+            return
+        }
+        if ppu.window_layers[x] &(u8.from(1) << pixel.layer) == 0 {
+            return
+        }
+        if pixel.order == OBJECT_ORDER && ppu.orders[x] == OBJECT_ORDER {
+            return
+        }
+        if pixel_above(pixel.priority, pixel.order, [ppu.priorities[x], ppu.orders[x]]) {
+            store_top_pixel(ppu, position, pixel)
+            return
+        }
+        if pixel_above(pixel.priority, pixel.order, [ppu.second_priorities[x], ppu.second_orders[x]]) {
+            ppu.second_colors[x] = pixel.color
+            ppu.second_priorities[x] = pixel.priority
+            ppu.second_orders[x] = pixel.order
+            ppu.second_layers[x] = pixel.layer
+        }
+        return
+    }
+
+    fn store_top_pixel(
+        ppu: write State,
+        position: PixelPosition,
+        pixel: LayerPixel
+    ) -> void {
+        let x = position.x
+        if x >= WIDTH || position.index >= ppu.framebuffer.length() {
+            return
+        }
+        ppu.second_colors[x] = ppu.framebuffer[position.index]
+        ppu.second_priorities[x] = ppu.priorities[x]
+        ppu.second_orders[x] = ppu.orders[x]
+        ppu.second_layers[x] = ppu.layers[x]
+        ppu.framebuffer[position.index] = pixel.color
+        ppu.priorities[x] = pixel.priority
+        ppu.orders[x] = pixel.order
+        ppu.layers[x] = pixel.layer
+        ppu.semi[x] = 0
+        if pixel.semi {
+            ppu.semi[x] = 1
+        }
+        return
+    }
+
+    fn pixel_above(
+        priority: u8,
+        order: u8,
+        current: [u8; 2]
+    ) -> bool {
+        if priority < current[0] {
+            return true
+        }
+        if priority > current[0] {
+            return false
+        }
+        return order < current[1]
+    }
+
+    fn render_background_mode(emulator: write emulator::State, line: usize, control: u16) -> void {
+        let mode = control & MODE_MASK
+        if mode == MODE_TEXT {
+            render_text_backgrounds(emulator, line, 4)
+        }
+        if mode == MODE_MIXED {
+            render_text_backgrounds(emulator, line, 2)
+            render_affine_backgrounds(emulator, line, 1)
+        }
+        if mode == MODE_AFFINE {
+            render_affine_backgrounds(emulator, line, 2)
+        }
+        if mode >= MODE_DIRECT {
+            if mode <= MODE_DIRECT_SMALL {
+                let bitmap = BitmapLine {
+                    line: line, mode: mode, control: control
+                }
+                render_bitmap(emulator, bitmap)
+            }
+        }
+    }
+}

@@ -1,0 +1,167 @@
+module app {
+    struct DisplayResult {
+        running: bool
+        code: u32
+    }
+
+    fn emulated_audio_rate(audio: audio::State) -> u32 {
+        return u32.from(video::CLOCK_HZ / audio::sample_cycles(audio))
+    }
+
+    fn worker_frame(
+        emulator: write emulator::State,
+        audio: write platform::Audio,
+        state: Shared<Mutex<State>>
+    ) -> bool {
+        var pressed: u16 = 0
+        var running = false
+        var render_video = false
+        let audio_ready = platform::audio_should_render(audio)
+        let clock = platform::frame_clock(audio)
+        state.lock write as current {
+            pressed = current.pressed
+            running = current.running
+            render_video = frame_schedule_render(current.video, audio_ready, clock)
+        }
+        if running == false {
+            return false
+        }
+        keypad::set_pressed(emulator.memory, pressed)
+        let emulated = emulator::run_frame_with_video(emulator, render_video)
+        if emulated != 0 {
+            state.lock write as current {
+                finish(current, emulated)
+            }
+            return false
+        }
+        let rate = emulated_audio_rate(emulator.audio)
+        let submitted = platform::submit_native_audio(audio, emulator.audio.samples, rate)
+        audio::clear_samples(emulator.audio)
+        if submitted != 0 {
+            state.lock write as current {
+                finish(current, submitted)
+            }
+            return false
+        }
+        if render_video {
+            state.lock write as current {
+                if publish(current, emulator.ppu.framebuffer) == false {
+                    finish(current, 86)
+                }
+            }
+        }
+        platform::synchronize_native_audio(audio)
+        return true
+    }
+
+    fn run_native_worker(
+        emulator: take emulator::State,
+        state: take Shared<Mutex<State>>,
+        completed: take Channel<emulator::State>
+    ) -> void {
+        var machine = move emulator
+        let pool = platform::open_objective_pool()
+        var audio = platform::open_native_audio(platform::ticks_per_second())
+        var running = platform::audio_ready(audio)
+        if running == false {
+            state.lock write as current {
+                finish(current, 80)
+            }
+        }
+        while running {
+            let frame_pool = platform::open_objective_pool()
+            running = worker_frame(machine, audio, state)
+        }
+        completed.send(move machine)
+        return
+    }
+
+    fn display_step(
+        platform: write platform::Window,
+        state: Shared<Mutex<State>>,
+        sequence: write u64
+    ) -> DisplayResult {
+        let pressed = u16.from(platform::poll_native_platform(platform))
+        let visible = platform::platform_running(platform)
+        var running = visible
+        var code: u32 = 0
+        var present = false
+        state.lock write as current {
+            update_input(current, pressed)
+            if visible == false {
+                finish(current, 0)
+            }
+            running = current.running
+            code = current.code
+            if current.sequence != sequence {
+                platform::copy_frame(platform, current.framebuffer)
+                sequence = current.sequence
+                present = true
+            }
+        }
+        if present {
+            let presented = platform::present(platform)
+            if presented != 0 {
+                state.lock write as current {
+                    finish(current, presented)
+                }
+                return DisplayResult {
+                    running: false, code: presented
+                }
+            }
+        }
+        if running {
+            platform::synchronize_native_platform(platform)
+        }
+        return DisplayResult {
+            running: running, code: code
+        }
+    }
+
+    fn run_native_display(
+        platform: write platform::Window,
+        state: Shared<Mutex<State>>
+    ) -> u32 {
+        var running = true
+        var result: u32 = 0
+        var sequence: u64 = 0
+        while running {
+            let frame_pool = platform::open_objective_pool()
+            let frame = display_step(platform, state, sequence)
+            running = frame.running
+            result = frame.code
+        }
+        state.lock write as current {
+            finish(current, result)
+        }
+        return result
+    }
+
+    fn run_native_frontend(emulator: take emulator::State) -> Option<Result> {
+        var platform = platform::open_native_platform()
+        if platform::platform_ready(platform) == false {
+            return Some(Result {
+                    emulator: move emulator, code: 80
+                })
+        }
+        let state = Shared.new(Mutex.new(new_native_frontend_state()))
+        let completed = Channel<emulator::State>.new()
+        let worker_completed = completed.share()
+        var worker = spawn move {
+            run_native_worker(move emulator, move state, move worker_completed)
+        }
+        let result = run_native_display(platform, state)
+        worker.join()
+        let returned = completed.try_receive()
+        match move returned {
+            Some(machine) => {
+                return Some(Result {
+                        emulator: move machine, code: result
+                    })
+            }
+            None => {
+                return None()
+            }
+        }
+    }
+}

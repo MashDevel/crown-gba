@@ -1,0 +1,95 @@
+copy struct WindowTestRegisters {
+    horizontal: [u16; 2]
+    vertical: [u16; 2]
+    inside: u16
+    outside: u16
+}
+
+fn test_window_range(value: read usize, encoded: read u16, limit: read usize) -> bool {
+    var start = usize.from(encoded >> 8)
+    var end = usize.from(encoded & 255)
+    if start > limit {
+        start = limit
+    }
+    if end > limit {
+        end = limit
+    }
+    if start > end {
+        end = limit
+    }
+    return value >= start && value < end
+}
+
+fn test_window_contains(registers: read WindowTestRegisters, point: read[usize; 2], window: read usize) -> bool {
+    return test_window_range(point[0], registers.horizontal[window], 240) && test_window_range(point[1], registers.vertical[window], 160)
+}
+
+fn test_window_expected(registers: read WindowTestRegisters, point: read[usize; 2], enabled: read u16) -> [u8; 3] {
+    if enabled == 0 {
+        return [31, 1, 0]
+    }
+    var control = u8.from(registers.outside & 255)
+    var source: u8 = 0
+    if enabled & 2 != 0 && test_window_contains(registers, point, 1) {
+        control = u8.from(registers.inside >> 8)
+        source = 1
+    }
+    if enabled & 1 != 0 && test_window_contains(registers, point, 0) {
+        control = u8.from(registers.inside & 255)
+        source = 1
+    }
+    return [control & 31, control >> 5 & 1, source]
+}
+
+fn test_window_pixels(ppu: read video::State, registers: read WindowTestRegisters, state: read[usize; 2]) -> u32 {
+    for x in 0..240 {
+        let expected = test_window_expected(registers, [x, state[0]], u16.from(state[1]))
+        if ppu.window_layers[x] != expected[0] {
+            return 450
+        }
+        if ppu.window_effects[x] != expected[1] {
+            return 451
+        }
+        if ppu.window_source[x] != expected[2] {
+            return 452
+        }
+    }
+    return 0
+}
+
+fn test_window_registers(emulator: write emulator::State, registers: read WindowTestRegisters) -> u32 {
+    memory::io_store16(emulator.memory, 64, registers.horizontal[0])
+    memory::io_store16(emulator.memory, 66, registers.horizontal[1])
+    memory::io_store16(emulator.memory, 68, registers.vertical[0])
+    memory::io_store16(emulator.memory, 70, registers.vertical[1])
+    memory::io_store16(emulator.memory, 72, registers.inside)
+    memory::io_store16(emulator.memory, 74, registers.outside)
+    let lines: [usize; 8] = [0, 9, 10, 19, 20, 159, 160, 227]
+    for enabled in 0..8 {
+        for index in 0..8 {
+            video::prepare_windows(emulator, lines[index], u16.from(enabled) << 13)
+            let result = test_window_pixels(emulator.ppu, registers, [lines[index], enabled])
+            if result != 0 {
+                return result
+            }
+        }
+    }
+    return 0
+}
+
+fn test_window_scanlines(emulator: write emulator::State) -> u32 {
+    let ranges: [u16; 8] = [0, 0x00f0, 0x0a14, 0x140a, 0xefff, 0xffff, 0xf000, 0x00a0]
+    for index in 0..8 {
+        let registers = WindowTestRegisters {
+            horizontal: [ranges[index], ranges[7 - index]]
+            vertical: [ranges[7 - index], ranges[index]]
+            inside: 0x213e
+            outside: 0x1034
+        }
+        let result = test_window_registers(emulator, registers)
+        if result != 0 {
+            return result
+        }
+    }
+    return 0
+}

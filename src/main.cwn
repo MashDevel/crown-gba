@@ -1,0 +1,3 @@
+fn main(arguments: Arguments) -> u32 {
+    return cli::run_command(arguments)
+}

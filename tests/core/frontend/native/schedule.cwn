@@ -1,0 +1,63 @@
+fn test_frame_schedule() -> u32 {
+    var schedule = app::new_frame_schedule()
+    var clock = app::FrameClock {
+        now: 1000, frame_ticks: 100
+    }
+    if app::frame_schedule_render(schedule, false, clock) == false {
+        return 419
+    }
+    clock.now = 1199
+    if app::frame_schedule_render(schedule, false, clock) {
+        return 420
+    }
+    clock.now = 1200
+    if app::frame_schedule_render(schedule, false, clock) == false {
+        return 421
+    }
+    clock.now = 1201
+    if app::frame_schedule_render(schedule, true, clock) == false {
+        return 422
+    }
+    clock.now = 1400
+    if app::frame_schedule_render(schedule, false, clock) {
+        return 423
+    }
+    clock.now = 1401
+    if app::frame_schedule_render(schedule, false, clock) == false {
+        return 424
+    }
+    clock.now = 10
+    if app::frame_schedule_render(schedule, false, clock) == false {
+        return 425
+    }
+    clock.frame_ticks = 0
+    if app::frame_schedule_render(schedule, false, clock) == false {
+        return 426
+    }
+    clock.frame_ticks = 18446744073709551615
+    clock.now = 18446744073709551615
+    if app::frame_schedule_render(schedule, false, clock) {
+        return 427
+    }
+    return test_sustained_audio_starvation()
+}
+
+fn test_sustained_audio_starvation() -> u32 {
+    var schedule = app::new_frame_schedule()
+    var clock = app::FrameClock {
+        now: 0, frame_ticks: 100
+    }
+    var rendered: u32 = 0
+    var frame: u32 = 0
+    while frame < 300 {
+        if app::frame_schedule_render(schedule, false, clock) {
+            rendered = rendered + 1
+        }
+        clock.now = clock.now + 100
+        frame = frame + 1
+    }
+    if rendered != 150 {
+        return 428
+    }
+    return 0
+}

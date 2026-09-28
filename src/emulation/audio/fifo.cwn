@@ -1,0 +1,92 @@
+module audio {
+    const FIFO_CAPACITY: usize = 32
+    const FIFO_WORD_BYTES: usize = 4
+    const FIFO_DMA_THRESHOLD: usize = 16
+
+    struct Fifo {
+        queued: [i8; 32]
+        head: usize
+        length: usize
+        internal_sample: u32
+        internal_remaining: u8
+        current_sample: i8
+    }
+
+    fn new_audio_fifo() -> Fifo {
+        return Fifo {
+            queued: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            head: 0
+            length: 0
+            internal_sample: 0
+            internal_remaining: 0
+            current_sample: 0
+        }
+    }
+
+    fn fifo_reset(fifo: write Fifo) -> void {
+        fifo.head = 0
+        fifo.length = 0
+        fifo.internal_sample = 0
+        fifo.internal_remaining = 0
+        fifo.current_sample = 0
+        return
+    }
+
+    fn fifo_reset_queue(fifo: write Fifo) -> void {
+        fifo.head = 0
+        fifo.length = 0
+        return
+    }
+
+    fn fifo_push(fifo: write Fifo, value: u8) -> void {
+        if fifo.length >= FIFO_CAPACITY {
+            return
+        }
+        let index = (fifo.head + fifo.length) % FIFO_CAPACITY
+        fifo.queued[index] = i8.from_bits(value)
+        fifo.length = fifo.length + 1
+        return
+    }
+
+    fn fifo_tick(fifo: write Fifo) -> bool {
+        let request_dma = fifo.length < FIFO_DMA_THRESHOLD
+        if fifo.internal_remaining == 0 {
+            fifo_refill(fifo)
+        }
+        fifo.current_sample = i8.from_bits(u8.from(fifo.internal_sample & 255))
+        if fifo.internal_remaining != 0 {
+            fifo.internal_sample = fifo.internal_sample >> 8
+            fifo.internal_remaining = fifo.internal_remaining - 1
+        }
+        return request_dma
+    }
+
+    fn fifo_refill(fifo: write Fifo) -> void {
+        fifo.internal_sample = 0
+        var count = fifo.length
+        if count > FIFO_WORD_BYTES {
+            count = FIFO_WORD_BYTES
+        }
+        fifo.internal_remaining = u8.from(count)
+        var index: usize = 0
+        while index < count {
+            let byte = u8.from_bits(fifo.queued[fifo.head])
+            fifo.internal_sample = fifo.internal_sample | u32.from(byte) << u32.from(index * 8)
+            fifo.head = (fifo.head + 1) % FIFO_CAPACITY
+            fifo.length = fifo.length - 1
+            index = index + 1
+        }
+        return
+    }
+
+    fn push_fifo_halfword(fifo: write Fifo, value: u16) -> void {
+        fifo_push(fifo, u8.from(value & 255))
+        fifo_push(fifo, u8.from(value >> 8))
+    }
+
+    fn push_fifo_word(fifo: write Fifo, value: u32) -> void {
+        push_fifo_halfword(fifo, u16.from(value & 65535))
+        push_fifo_halfword(fifo, u16.from(value >> 16))
+    }
+}

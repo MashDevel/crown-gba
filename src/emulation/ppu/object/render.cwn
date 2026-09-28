@@ -1,0 +1,130 @@
+module video {
+    struct ObjectRender {
+        object: usize
+        line: usize
+        control: u16
+    }
+
+    fn render_objects(emulator: write emulator::State, line: usize, control: u16) -> void {
+        var budget = object_budget(line, control)
+        var object: usize = 0
+        while object < OBJECT_COUNT {
+            if object_charge(emulator.memory, budget, object) == false {
+                return
+            }
+            if budget.render {
+                let render = ObjectRender {
+                    object: object, line: line, control: control
+                }
+                render_object(emulator, render)
+            }
+            object = object.wrapping_add(1)
+        }
+        return
+    }
+
+    fn render_object_windows(emulator: write emulator::State, line: usize, control: u16) -> void {
+        if control &(OBJECT_ENABLE | OBJECT_WINDOW_ENABLE) !=(OBJECT_ENABLE | OBJECT_WINDOW_ENABLE) {
+            return
+        }
+        let limit = object_budget_limit(emulator.memory, line, control)
+        var object: usize = 0
+        while object < limit {
+            let base = object * OBJECT_ENTRY_BYTES
+            let attr0 = oam16(emulator.memory, base)
+            let attr1 = oam16(emulator.memory, base + 2)
+            let attr2 = oam16(emulator.memory, base + 4)
+            let attributes = ObjectAttributes {
+                attr0: attr0, attr1: attr1, attr2: attr2
+            }
+            if object_valid(attributes, control) {
+                if attr0 >> OBJECT_MODE_SHIFT & OBJECT_MODE_MASK == OBJECT_MODE_WINDOW {
+                    let size = object_size(attr0, attr1)
+                    let render_size = object_render_size(attr0, size)
+                    let local_y = (line + OBJECT_Y_RANGE - usize.from(attr0 & OBJECT_Y_MASK)) % OBJECT_Y_RANGE
+                    if local_y < render_size[1] {
+                        let render = ObjectRender {
+                            object: object, line: line, control: control
+                        }
+                        render_object_window(emulator, render)
+                    }
+                }
+            }
+            object = object.wrapping_add(1)
+        }
+        return
+    }
+
+    fn render_object(emulator: write emulator::State, render: ObjectRender) -> void {
+        let base = render.object * OBJECT_ENTRY_BYTES
+        let attr0 = oam16(emulator.memory, base)
+        let attr1 = oam16(emulator.memory, base + 2)
+        let size = object_size(attr0, attr1)
+        let render_size = object_render_size(attr0, size)
+        let origin_y = usize.from(attr0 & OBJECT_Y_MASK)
+        let local_y = (render.line + OBJECT_Y_RANGE - origin_y) % OBJECT_Y_RANGE
+        if local_y >= render_size[1] {
+            return
+        }
+        let row = render.line * WIDTH
+        var origin_x = i32.from(attr1 & OBJECT_X_MASK)
+        if origin_x >= OBJECT_X_SIGN {
+            origin_x = origin_x - i32.from(OBJECT_X_RANGE)
+        }
+        var sprite_x: usize = 0
+        while sprite_x < render_size[0] {
+            let signed_x = origin_x + i32.from(sprite_x)
+            if signed_x >= 0 {
+                if signed_x < i32.from(WIDTH) {
+                    let screen_x = usize.from(signed_x)
+                    let point = ObjectPoint {
+                        object: render.object, line: render.line, x: screen_x
+                    }
+                    let sample = ObjectSample {
+                        point: move point, control: render.control, size: size, render_size: render_size
+                    }
+                    let pixel = object_pixel(emulator.memory, sample)
+                    let position = PixelPosition {
+                        index: row + screen_x, x: screen_x
+                    }
+                    commit_pixel(emulator.ppu, position, pixel)
+                }
+            }
+            sprite_x = sprite_x.wrapping_add(1)
+        }
+        return
+    }
+
+    fn render_object_window(emulator: write emulator::State, render: ObjectRender) -> void {
+        let base = render.object * OBJECT_ENTRY_BYTES
+        let attr0 = oam16(emulator.memory, base)
+        let attr1 = oam16(emulator.memory, base + 2)
+        let size = object_size(attr0, attr1)
+        let render_size = object_render_size(attr0, size)
+        var origin_x = i32.from(attr1 & OBJECT_X_MASK)
+        if origin_x >= OBJECT_X_SIGN {
+            origin_x = origin_x - i32.from(OBJECT_X_RANGE)
+        }
+        var sprite_x: usize = 0
+        while sprite_x < render_size[0] {
+            let signed_x = origin_x + i32.from(sprite_x)
+            if signed_x >= 0 {
+                if signed_x < i32.from(WIDTH) {
+                    let screen_x = usize.from(signed_x)
+                    let point = ObjectPoint {
+                        object: render.object, line: render.line, x: screen_x
+                    }
+                    let sample = ObjectSample {
+                        point: move point, control: render.control, size: size, render_size: render_size
+                    }
+                    let pixel = object_pixel(emulator.memory, sample)
+                    if pixel.visible {
+                        apply_object_window(emulator, screen_x)
+                    }
+                }
+            }
+            sprite_x = sprite_x.wrapping_add(1)
+        }
+        return
+    }
+}

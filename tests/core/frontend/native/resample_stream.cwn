@@ -1,0 +1,79 @@
+fn resample_signal(start: usize, frames: usize) -> Vec<i32> {
+    var samples = Vec<i32>.new()
+    for index in start..start + frames {
+        let value = i32.from(index % 127) - 63
+        samples.push(value)
+        samples.push(-value)
+    }
+    return move samples
+}
+
+fn test_resample_chunks(rate: u32) -> u32 {
+    var whole = app::sample_ring()
+    var chunks = app::sample_ring()
+    if app::ring_push(whole, resample_signal(0, 4096), rate) == false {
+        return 214
+    }
+    var offset: usize = 0
+    while offset < 4096 {
+        var count: usize = 37
+        if count > 4096 - offset {
+            count = 4096 - offset
+        }
+        if app::ring_push(chunks, resample_signal(offset, count), rate) == false {
+            return 215
+        }
+        if resample_stream_matches(whole, chunks) == false {
+            return 216
+        }
+        offset = offset + count
+    }
+    if app::ring_frames(whole) != 0 || whole.phase != chunks.phase {
+        return 218
+    }
+    return 0
+}
+
+fn resample_stream_matches(whole: write app::SampleRing, chunks: write app::SampleRing) -> bool {
+    while chunks.length != 0 {
+        if whole.length == 0 || app::ring_sample(whole) != app::ring_sample(chunks) {
+            return false
+        }
+    }
+    return true
+}
+
+fn test_resample_rate_changes() -> u32 {
+    var ring = app::sample_ring()
+    let rates: [u32; 5] = [32768, 262144, 65536, 131072, 48000]
+    for index in 0..5 {
+        let value = (i32.from(index) - 2) * 512
+        if app::ring_push(ring, audio_samples(25, value), rates[index]) == false {
+            return 219
+        }
+        var expected = f32.from(value) * 48.0 / 32768.0
+        if expected < -1.0 {
+            expected = -1.0
+        }
+        if expected > 1.0 {
+            expected = 1.0
+        }
+        while app::ring_frames(ring) != 0 {
+            if app::ring_sample(ring) != expected || app::ring_sample(ring) != -expected {
+                return 220
+            }
+        }
+    }
+    return 0
+}
+
+fn test_resample_stream() -> u32 {
+    let rates: [u32; 5] = [32768, 48000, 65536, 131072, 262144]
+    for index in 0..5 {
+        let result = test_resample_chunks(rates[index])
+        if result != 0 {
+            return result
+        }
+    }
+    return test_resample_rate_changes()
+}

@@ -1,0 +1,243 @@
+module platform {
+    opaque resource Audio {
+        engine: RawPtr<void>
+        player: RawPtr<void>
+        format: RawPtr<void>
+        rate: u32
+        started: bool
+        playing: bool
+        queue: app::AudioQueue
+        ticks_per_second: u64
+        drop {
+            unsafe {
+                if started {
+                    objc_unit(player, named_selector("stop\0"))
+                    objc_unit(engine, named_selector("stop\0"))
+                    objc_unit_object(engine, named_selector("disconnectNodeOutput:\0"), player)
+                }
+                release_object(format)
+                release_object(player)
+                release_object(engine)
+            }
+        }
+    }
+
+    fn allocated_object(class_name: take Text) -> RawPtr<void> {
+        unsafe {
+            let class = named_class(move class_name)
+            let allocated = objc_pointer(class, named_selector("alloc\0"))
+            return objc_pointer(allocated, named_selector("init\0"))
+        }
+    }
+
+    fn audio_format(rate: u32) -> RawPtr<void> {
+        unsafe {
+            let class = named_class("AVAudioFormat\0")
+            let allocated = objc_pointer(class, named_selector("alloc\0"))
+            return objc_pointer_rate_channels(
+                allocated, named_selector("initStandardFormatWithSampleRate:channels:\0"), f64.from(rate), 2
+            )
+        }
+    }
+
+    fn stop_native_audio(audio: write Audio) -> void {
+        unsafe {
+            if audio.started {
+                objc_unit(audio.player, named_selector("stop\0"))
+                objc_unit(audio.engine, named_selector("stop\0"))
+                objc_unit_object(audio.engine, named_selector("disconnectNodeOutput:\0"), audio.player)
+            }
+            audio.started = false
+            audio.playing = false
+            audio.queue = app::new_audio_queue(audio.rate)
+        }
+        return
+    }
+
+    fn configure_native_audio(audio: write Audio, rate: u32) -> bool {
+        unsafe {
+            stop_native_audio(audio)
+            if audio.format != null_object() {
+                release_object(audio.format)
+            }
+            audio.format = audio_format(rate)
+            if audio.format == null_object() {
+                return false
+            }
+            let mixer = objc_pointer(audio.engine, named_selector("mainMixerNode\0"))
+            objc_unit_three_objects(
+                audio.engine, named_selector("connect:to:format:\0"), audio.player, mixer, audio.format
+            )
+            objc_unit(audio.engine, named_selector("prepare\0"))
+            let started = objc_bool_object(
+                audio.engine, named_selector("startAndReturnError:\0"), null_object()
+            )
+            if started == false {
+                objc_unit(audio.player, named_selector("stop\0"))
+                objc_unit_object(audio.engine, named_selector("disconnectNodeOutput:\0"), audio.player)
+                return false
+            }
+            audio.rate = rate
+            audio.started = true
+            audio.playing = false
+            audio.queue = app::new_audio_queue(rate)
+        }
+        return true
+    }
+
+    fn open_native_audio(ticks_per_second: u64) -> Audio {
+        unsafe {
+            var audio = Audio {
+                engine: allocated_object("AVAudioEngine\0")
+                player: allocated_object("AVAudioPlayerNode\0")
+                format: null_object()
+                rate: 0
+                started: false
+                playing: false
+                queue: app::new_audio_queue(32768)
+                ticks_per_second: ticks_per_second
+            }
+            if audio.engine == null_object() {
+                return move audio
+            }
+            if audio.player == null_object() {
+                return move audio
+            }
+            objc_unit_object(audio.engine, named_selector("attachNode:\0"), audio.player)
+            configure_native_audio(audio, 32768)
+            return move audio
+        }
+    }
+
+    fn audio_buffer(audio: Audio, frames: u32) -> RawPtr<void> {
+        unsafe {
+            let class = named_class("AVAudioPCMBuffer\0")
+            let allocated = objc_pointer(class, named_selector("alloc\0"))
+            return objc_pointer_object_u32(
+                allocated, named_selector("initWithPCMFormat:frameCapacity:\0"), audio.format, frames
+            )
+        }
+    }
+
+    fn fill_audio_channels(buffer: RawPtr<void>, samples: Vec<i32>) -> bool {
+        unsafe {
+            let channels = objc_float_channels(buffer, named_selector("floatChannelData\0"))
+            if channels == RawPtr<RawPtr<f32>>.from_address(0) {
+                return false
+            }
+            let left = channels.read()
+            let right = channels.offset(1).read()
+            var index: usize = 0
+            while index < samples.length() / 2 {
+                left.offset(index).write(f32.from(samples[index * 2]) * 48.0 / 32768.0)
+                right.offset(index).write(f32.from(samples[index * 2 + 1]) * 48.0 / 32768.0)
+                index = index + 1
+            }
+        }
+        return true
+    }
+
+    fn audio_clock(audio: Audio) -> app::AudioClock {
+        unsafe {
+            return app::AudioClock {
+                now: mach_absolute_time()
+                ticks_per_second: audio.ticks_per_second
+                rate: audio.rate
+            }
+        }
+    }
+
+    fn frame_clock(audio: Audio) -> app::FrameClock {
+        unsafe {
+            return app::FrameClock {
+                now: mach_absolute_time()
+                frame_ticks: frame_ticks(audio.ticks_per_second)
+            }
+        }
+    }
+
+    fn refresh_native_audio(audio: write Audio, clock: app::AudioClock) -> void {
+        unsafe {
+            let playing = audio.playing
+            audio.playing = app::audio_playback_advance(audio.queue, playing, clock)
+        }
+        return
+    }
+
+    fn submit_native_audio(
+        audio: write Audio,
+        samples: Vec<i32>,
+        rate: u32
+    ) -> u32 {
+        unsafe {
+            if samples.length() == 0 {
+                return 0
+            }
+            if samples.length() % 2 != 0 {
+                return 82
+            }
+            if rate != audio.rate {
+                if configure_native_audio(audio, rate) == false {
+                    return 83
+                }
+            }
+            let clock = audio_clock(audio)
+            refresh_native_audio(audio, clock)
+            let frames = u32.from(samples.length() / 2)
+            let buffer = audio_buffer(audio, frames)
+            if buffer == null_object() {
+                return 84
+            }
+            objc_unit_u32(buffer, named_selector("setFrameLength:\0"), frames)
+            if fill_audio_channels(buffer, samples) == false {
+                release_object(buffer)
+                return 85
+            }
+            objc_unit_two_objects(
+                audio.player, named_selector("scheduleBuffer:completionHandler:\0"), buffer, null_object()
+            )
+            release_object(buffer)
+            let ready = app::audio_queue_push(audio.queue, frames)
+            if audio.playing == false {
+                if ready {
+                    objc_unit(audio.player, named_selector("play\0"))
+                    audio.playing = true
+                    app::audio_queue_start(audio.queue, mach_absolute_time())
+                }
+            }
+            return 0
+        }
+    }
+
+    fn audio_should_render(audio: write Audio) -> bool {
+        unsafe {
+            let clock = audio_clock(audio)
+            refresh_native_audio(audio, clock)
+            if audio.playing == false {
+                return false
+            }
+            return app::audio_queue_should_render(audio.queue)
+        }
+    }
+
+    fn synchronize_native_audio(audio: write Audio) -> void {
+        unsafe {
+            let clock = audio_clock(audio)
+            refresh_native_audio(audio, clock)
+            if audio.playing == false {
+                return
+            }
+            let ticks = app::audio_queue_wait_ticks(audio.queue, clock)
+            if ticks != 0 {
+                mach_wait_until(clock.now + ticks)
+            }
+            return
+        }
+    }
+
+    fn audio_ready(audio: Audio) -> bool {
+        unsafe {
+            return audio.started
+        }
+    }
+}

@@ -1,0 +1,68 @@
+module video {
+    struct ObjectBudget {
+        line: usize
+        control: u16
+        remaining: i32
+        render: bool
+    }
+
+    fn object_budget_limit(memory: memory::State, line: usize, control: u16) -> usize {
+        var budget = object_budget(line, control)
+        var object: usize = 0
+        while object < OBJECT_COUNT {
+            if object_charge(memory, budget, object) == false {
+                return object
+            }
+            object = object.wrapping_add(1)
+        }
+        return 128
+    }
+
+    fn object_budget(line: usize, control: u16) -> ObjectBudget {
+        var remaining: i32 = 1226
+        if control & 32 != 0 {
+            remaining = 954
+        }
+        return ObjectBudget {
+            line: line, control: control, remaining: remaining, render: false
+        }
+    }
+
+    fn object_charge(memory: memory::State, budget: write ObjectBudget, object: usize) -> bool {
+        budget.render = false
+        let base = object * OBJECT_ENTRY_BYTES
+        let attr0 = oam16(memory, base)
+        let attr1 = oam16(memory, base + 2)
+        let attr2 = oam16(memory, base + 4)
+        let attributes = ObjectAttributes {
+            attr0: attr0, attr1: attr1, attr2: attr2
+        }
+        if object_valid(attributes, budget.control) == false {
+            return true
+        }
+        let size = object_size(attr0, attr1)
+        let render_size = object_render_size(attr0, size)
+        let visibility = ObjectVisibility {
+            attributes: move attributes
+            line: budget.line
+            render_size: render_size
+        }
+        let visible = object_line_visible(visibility)
+        var cost: i32 = 2
+        if visible {
+            cost = i32.from(render_size[0])
+            if attr0 & OBJECT_AFFINE != 0 {
+                cost = cost * 2 + 10
+            }
+        }
+        if budget.remaining < cost {
+            return false
+        }
+        budget.remaining = budget.remaining - cost
+        budget.render = visible
+        if attr0 >> OBJECT_MODE_SHIFT & OBJECT_MODE_MASK == OBJECT_MODE_WINDOW {
+            budget.render = false
+        }
+        return true
+    }
+}

@@ -1,0 +1,50 @@
+module validation {
+    fn validate_game(emulator: write emulator::State) -> u32 {
+        let result = emulator::run_frames(emulator, 4)
+        if result != 0 {
+            return result
+        }
+        if memory::read32(emulator.memory, emulator.cartridge, memory::IWRAM_START) != 4 {
+            return 50
+        }
+        let tile = memory::read16(emulator.memory, emulator.cartridge, 100696064)
+        if tile != 1 {
+            print(u32.from(tile))
+            return 51
+        }
+        if memory::read16(emulator.memory, emulator.cartridge, 117440514) & 511 != 40 {
+            return 52
+        }
+        if memory::read32(emulator.memory, emulator.cartridge, 50364412) != 134217984 {
+            return 53
+        }
+        if video::checksum(emulator.ppu) != 6518065264484612480 {
+            return 54
+        }
+        if emulator.ppu.framebuffer[9640] != 255 {
+            return 55
+        }
+        if audio::has_nonzero(emulator.audio) == false {
+            return 56
+        }
+        return 0
+    }
+
+    fn validate(emulator: write emulator::State, limit: u64) -> u32 {
+        var steps: u64 = 0
+        while steps < limit {
+            emulator::step(emulator)
+            steps = steps.wrapping_add(1)
+            let marker = memory::read32(emulator.memory, emulator.cartridge, memory::IWRAM_START)
+            if marker == 1611489293 {
+                return 0
+            }
+            if marker != 0 {
+                if marker <= 255 {
+                    return marker
+                }
+            }
+        }
+        return 42
+    }
+}

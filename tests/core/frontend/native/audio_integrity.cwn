@@ -1,0 +1,95 @@
+fn test_audio_integrity(emulator: write emulator::State) -> u32 {
+    let rates = test_gba_output_rates()
+    if rates != 0 {
+        return rates
+    }
+    let frames = test_complete_audio_frames(emulator)
+    if frames != 0 {
+        return frames
+    }
+    let reserve = test_audio_callback_reserve()
+    if reserve != 0 {
+        return reserve
+    }
+    return test_resample_spectrum()
+}
+
+fn test_gba_output_rates() -> u32 {
+    let rates: [u32; 4] = [32768, 65536, 131072, 262144]
+    for mode in 0..4 {
+        var ring = app::sample_ring()
+        let rate = rates[mode]
+        if app::ring_push(ring, audio_samples(usize.from(rate / 64), 512), rate) == false {
+            return 201
+        }
+        if app::ring_frames(ring) != 750 {
+            return 202
+        }
+        while app::ring_frames(ring) != 0 {
+            if app::ring_sample(ring) != 0.75 {
+                return 203
+            }
+            if app::ring_sample(ring) != -0.75 {
+                return 204
+            }
+        }
+    }
+    return 0
+}
+
+fn test_complete_audio_frames(emulator: write emulator::State) -> u32 {
+    for mode in 0..4 {
+        reset_test_audio(emulator)
+        audio::store16(emulator.audio, audio::BIAS_CONTROL - audio::REGISTER_BASE, 512 | u16.from(mode) << 14)
+        let expected = u64.from(video::CYCLES_PER_FRAME) / audio::sample_cycles(emulator.audio)
+        audio::emit_samples(emulator.audio, video::CYCLES_PER_FRAME)
+        if emulator.audio.samples.length() != usize.from(expected) * 2 {
+            return 205
+        }
+        audio::clear_samples(emulator.audio)
+        if emulator.audio.samples.length() != 0 {
+            return 206
+        }
+    }
+    return 0
+}
+
+fn test_audio_callback_reserve() -> u32 {
+    let quanta: [usize; 4] = [128, 1024, 2048, 4096]
+    if app::audio_target_frames(0) >= app::AUDIO_CAPACITY / 2 {
+        return 210
+    }
+    if app::audio_target_frames(18446744073709551615) >= app::AUDIO_CAPACITY / 2 {
+        return 211
+    }
+    var ring = app::sample_ring()
+    for index in 0..4 {
+        let quantum = quanta[index]
+        for callback in 0..20 {
+            callback
+            let result = test_queued_audio_callback(ring, quantum)
+            if result != 0 {
+                return result
+            }
+        }
+    }
+    return 0
+}
+
+fn test_queued_audio_callback(ring: write app::SampleRing, quantum: usize) -> u32 {
+    while app::ring_frames(ring) < app::audio_target_frames(quantum) {
+        if app::ring_push(ring, audio_samples(800, 512), 48000) == false {
+            return 207
+        }
+    }
+    for sample in 0..quantum {
+        sample
+        if app::ring_sample(ring) != 0.75 {
+            return 208
+        }
+        if app::ring_sample(ring) != -0.75 {
+            return 209
+        }
+    }
+    return 0
+}

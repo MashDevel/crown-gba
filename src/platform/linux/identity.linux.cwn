@@ -1,0 +1,9 @@
+module platform {
+    fn identify_window(window: Window) -> void {
+        unsafe {
+            integration::steam::identify(window.library, integration::steam::WindowIdentity {
+                    display: window.display, window: window.window, name: "crown-gba\0".as_raw(), class: "Crown GBA\0".as_raw()
+                })
+        }
+    }
+}

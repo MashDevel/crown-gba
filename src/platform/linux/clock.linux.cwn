@@ -1,0 +1,21 @@
+module platform {
+    extern "c" {
+        fn raw_clock(clock: i32, value: RawPtr<u64>) -> i32 = "clock_gettime"
+    }
+
+    fn nanoseconds() -> u64 {
+        var value: [u64; 2] = [0, 0]
+        unsafe {
+            if raw_clock(1, value.as_raw()) != 0 {
+                return 0
+            }
+        }
+        return value[0] * 1000000000 + value[1]
+    }
+
+    fn null() -> RawPtr<u8> {
+        unsafe {
+            return RawPtr<u8>.from_address(0)
+        }
+    }
+}

@@ -1,0 +1,3 @@
+[package]
+name = "gba_validation"
+sources = ["../../src/emulation", "../../src/util", "../../src/foreign.cwn", "../../../lang/components/library/src", "../../../lang/components/library/platform/src", "../../../lang/components/library/integrations/src", "."]

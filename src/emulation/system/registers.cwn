@@ -1,0 +1,8 @@
+module system {
+    const INTERRUPT_ENABLE: usize = 0x200
+    const INTERRUPT_FLAGS: usize = 0x202
+    const WAIT_CONTROL: usize = 0x204
+    const INTERRUPT_MASTER: usize = 0x208
+    const INTERRUPT_MASK: u16 = 0x3fff
+    const WAIT_CONTROL_MASK: u16 = 0x5fff
+}

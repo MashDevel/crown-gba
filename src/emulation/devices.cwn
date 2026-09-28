@@ -1,0 +1,253 @@
+module devices {
+    struct State {
+        scanline_cycles: u32
+        vcount: u16
+        frames: u64
+        in_hblank: bool
+        in_hle_irq: bool
+        irq_return_pcs: Vec<u32>
+        dma_source: [u32; 4]
+        dma_destination: [u32; 4]
+        dma_initialized: [bool; 4]
+        dma_timing: [u8; 3]
+    }
+
+    fn new() -> State {
+        return State {
+            scanline_cycles: 0
+            vcount: 0
+            frames: 0
+            in_hblank: false
+            in_hle_irq: false
+            irq_return_pcs: Vec<u32>.new()
+            dma_source: [0, 0, 0, 0]
+            dma_destination: [0, 0, 0, 0]
+            dma_initialized: [false, false, false, false]
+            dma_timing: [0, 0, 0]
+        }
+    }
+
+    fn step(emulator: write emulator::State, cycles: u32) -> u32 {
+        let elapsed = advance_cycles(emulator, cycles)
+        if keypad::irq_requested(emulator.memory) {
+            request_interrupt(emulator.memory, 12)
+        }
+        if emulator.cpu.halted {
+            wake_cpu(emulator)
+        }
+        return elapsed
+    }
+
+    fn step_halted(emulator: write emulator::State) -> u32 {
+        audio::process_events(emulator)
+        if keypad::irq_requested(emulator.memory) {
+            request_interrupt(emulator.memory, 12)
+        }
+        wake_cpu(emulator)
+        if emulator.cpu.halted == false {
+            return 0
+        }
+        var cycles: u32 = 1
+        if emulator.dma_cycles_pending == 0 {
+            if emulator.devices.dma_timing[0] == 0 {
+                let video = next_video_event(emulator.devices)
+                cycles = next_chunk(emulator, video)
+            }
+        }
+        return step(emulator, cycles)
+    }
+
+    fn advance_cycles(emulator: write emulator::State, cycles: u32) -> u32 {
+        if can_advance_quiet(emulator, cycles) {
+            advance_quiet(emulator, cycles)
+            return cycles
+        }
+        var elapsed: u32 = 0
+        var remaining = cycles
+        while remaining != 0 {
+            audio::process_events(emulator)
+            let chunk = next_chunk(emulator, remaining)
+            elapsed = elapsed.wrapping_add(advance_chunk(emulator, chunk))
+            remaining = remaining - chunk
+        }
+        return elapsed
+    }
+
+    fn can_advance_quiet(emulator: emulator::State, cycles: u32) -> bool {
+        if emulator.memory.audio_events.length() != 0 {
+            return false
+        }
+        if emulator.dma_cycles_pending != 0 {
+            return false
+        }
+        if emulator.devices.dma_timing[0] != 0 {
+            return false
+        }
+        if next_video_event(emulator.devices) <= cycles {
+            return false
+        }
+        if timers::next_event(emulator.memory, cycles) <= u64.from(cycles) {
+            return false
+        }
+        return audio::can_advance_quiet(emulator.audio, cycles)
+    }
+
+    fn advance_quiet(emulator: write emulator::State, cycles: u32) -> void {
+        timers::advance_quiet(emulator.memory, cycles)
+        audio::advance_quiet(emulator.audio, cycles)
+        emulator.devices.scanline_cycles = emulator.devices.scanline_cycles.wrapping_add(cycles)
+        return
+    }
+
+    fn advance_chunk(emulator: write emulator::State, cycles: u32) -> u32 {
+        let overflows = timers::step(emulator.memory, cycles)
+        audio::step_synced(emulator, cycles, overflows)
+        var elapsed = cycles.wrapping_add(advance_pending_dma(emulator))
+        dma::process_timing(emulator, 0)
+        elapsed = elapsed.wrapping_add(advance_pending_dma(emulator))
+        video::advance_video(emulator, cycles)
+        elapsed = elapsed.wrapping_add(advance_pending_dma(emulator))
+        return elapsed
+    }
+
+    fn advance_pending_dma(emulator: write emulator::State) -> u32 {
+        let cycles = emulator.dma_cycles_pending
+        emulator.dma_cycles_pending = 0
+        if cycles == 0 {
+            return 0
+        }
+        return advance_cycles(emulator, cycles)
+    }
+
+    fn next_chunk(emulator: emulator::State, remaining: u32) -> u32 {
+        var chunk = next_video_event(emulator.devices)
+        let timer = timers::next_event(emulator.memory, remaining)
+        let audio = next_audio_event(emulator.audio, remaining)
+        if chunk > remaining {
+            chunk = remaining
+        }
+        if timer <= u64.from(chunk) {
+            chunk = u32.from(timer)
+        }
+        if audio < chunk {
+            chunk = audio
+        }
+        return chunk
+    }
+
+    fn next_video_event(devices: State) -> u32 {
+        if devices.in_hblank {
+            return video::CYCLES_PER_LINE - devices.scanline_cycles
+        }
+        return video::HBLANK_START - devices.scanline_cycles
+    }
+
+    fn next_audio_event(audio: audio::State, remaining: u32) -> u32 {
+        if audio::master_enabled(audio) == false {
+            return remaining
+        }
+        let cycles = audio::sample_cycles(audio) - audio.sample_clock
+        if cycles < u64.from(remaining) {
+            return u32.from(cycles)
+        }
+        return remaining
+    }
+
+    fn request_interrupt(memory: write memory::State, line: usize) -> void {
+        let flags = memory::io_read16(memory, system::INTERRUPT_FLAGS)
+        memory::io_store16(memory, system::INTERRUPT_FLAGS, flags |(1 << u16.from(line)))
+        return
+    }
+
+    fn wake_cpu(emulator: write emulator::State) -> void {
+        let enabled = memory::io_read16(emulator.memory, system::INTERRUPT_ENABLE)
+        let flags = memory::io_read16(emulator.memory, system::INTERRUPT_FLAGS)
+        if enabled & flags != 0 {
+            emulator.cpu.halted = false
+        }
+        return
+    }
+
+    fn interrupt_pending(emulator: emulator::State) -> bool {
+        if memory::io_read16(emulator.memory, system::INTERRUPT_MASTER) & 1 == 0 {
+            return false
+        }
+        let enabled = memory::io_read16(emulator.memory, system::INTERRUPT_ENABLE)
+        let flags = memory::io_read16(emulator.memory, system::INTERRUPT_FLAGS)
+        return enabled & flags != 0
+    }
+
+    fn enter_irq(emulator: write emulator::State) -> u32 {
+        if emulator.memory.bios_loaded {
+            cpu::enter_irq(emulator.cpu)
+            return 3
+        }
+        let pending = memory::io_read16(emulator.memory, system::INTERRUPT_ENABLE) & memory::io_read16(emulator.memory, system::INTERRUPT_FLAGS)
+        if pending == 0 {
+            return 0
+        }
+        let bios_flags = bios::interrupt_flags(emulator.memory) | pending
+        bios::store_interrupt_flags(emulator.memory, bios_flags)
+        let handler = memory::read32(emulator.memory, emulator.cartridge, bios::IRQ_HANDLER_ADDRESS)
+        if handler == 0 {
+            cpu::enter_irq(emulator.cpu)
+            return 3
+        }
+        return start_hle_irq(emulator, handler)
+    }
+
+    fn start_hle_irq(emulator: write emulator::State, handler: u32) -> u32 {
+        let saved = [
+            emulator.cpu.registers[0], emulator.cpu.registers[1], emulator.cpu.registers[2],
+            emulator.cpu.registers[3], emulator.cpu.registers[12], emulator.cpu.registers[cpu::LR]
+        ]
+        let return_pc = emulator.cpu.registers[cpu::PC]
+        let status = emulator.cpu.cpsr
+        cpu::set_spsr(emulator.cpu, 18, status)
+        cpu::switch_mode(emulator.cpu, 18)
+        cpu::set_flag(emulator.cpu, cpu::IRQ_DISABLE, true)
+        cpu::set_thumb(emulator.cpu, false)
+        let stack = emulator.cpu.registers[cpu::SP].wrapping_sub(24)
+        var index: usize = 0
+        while index < 6 {
+            memory::write32(emulator.memory, stack.wrapping_add(u32.from(index) * 4), saved[index])
+            index = index.wrapping_add(1)
+        }
+        emulator.cpu.registers[cpu::SP] = stack
+        emulator.cpu.registers[0] = memory::IO_START
+        emulator.cpu.registers[cpu::LR] = 257
+        cpu::set_thumb(emulator.cpu, handler & 1 != 0)
+        cpu::write_register(emulator.cpu, cpu::PC, handler)
+        emulator.devices.irq_return_pcs.push(return_pc)
+        emulator.devices.in_hle_irq = true
+        return 20
+    }
+
+    fn finish_irq(emulator: write emulator::State) -> void {
+        let stack = emulator.cpu.registers[cpu::SP]
+        let registers: [usize; 6] = [0, 1, 2, 3, 12, 14]
+        var index: usize = 0
+        while index < 6 {
+            let value = memory::read32(
+                emulator.memory,
+                emulator.cartridge,
+                stack.wrapping_add(u32.from(index) * 4)
+            )
+            emulator.cpu.registers[registers[index]] = value
+            index = index.wrapping_add(1)
+        }
+        emulator.cpu.registers[cpu::SP] = stack.wrapping_add(24)
+        cpu::restore_spsr(emulator.cpu)
+        let last = emulator.devices.irq_return_pcs.length() - 1
+        let return_pc = emulator.devices.irq_return_pcs[last]
+        emulator.devices.irq_return_pcs.pop()
+        cpu::write_register(emulator.cpu, cpu::PC, return_pc)
+        emulator.devices.in_hle_irq = emulator.devices.irq_return_pcs.length() != 0
+        if emulator.devices.in_hle_irq == false {
+            if emulator.cpu.intr_wait_mask != 0 {
+                emulator.cpu.halted = true
+            }
+        }
+        return
+    }
+}

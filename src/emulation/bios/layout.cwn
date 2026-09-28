@@ -1,0 +1,14 @@
+module bios {
+    const RESERVED_IWRAM: usize = 0x7e00
+    const INTERRUPT_FLAGS: usize = 0x7ff8
+    const RESET_DESTINATION: usize = 0x7ffa
+    const IRQ_HANDLER: usize = 0x7ffc
+    const IRQ_HANDLER_ADDRESS: u32 = memory::IWRAM_START + 0x7ffc
+    const POST_BOOT: usize = 0x300
+    const DIRECT_BOOT_WAIT: u16 = 0x4317
+    const AFFINE_IDENTITY: u16 = 1 << 8
+    const DEFAULT_AUDIO_BIAS: u16 = 1 << 9
+    const DEBUG_BUFFER_CAPACITY: usize = 1024
+    const ANGLE_UNITS_PER_TURN: f64 = 65536.0
+    const RADIANS_PER_TURN: f64 = 6.283185307179586
+}

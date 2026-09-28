@@ -1,0 +1,94 @@
+module bios {
+    struct BitUnpacker {
+        source: u32
+        destination: u32
+        length: u32
+        source_width: u32
+        destination_width: u32
+        source_mask: u32
+        destination_mask: u32
+        offset: u32
+        zero_data: bool
+        output: u32
+        output_bits: u32
+    }
+
+    fn bit_unpack(emulator: write emulator::State) -> void {
+        var unpacker = new_unpacker(emulator)
+        if unpacker.source_width == 0 {
+            return
+        }
+        if unpacker.destination_width == 0 {
+            return
+        }
+        if unpacker.source_width > 8 {
+            return
+        }
+        if unpacker.destination_width > 32 {
+            return
+        }
+        var index: u32 = 0
+        while index < unpacker.length {
+            let byte = bus::read8(emulator, unpacker.source)
+            unpacker.source = unpacker.source.wrapping_add(1)
+            unpack_byte(emulator, unpacker, byte)
+            index = index + 1
+        }
+        return
+    }
+
+    fn new_unpacker(emulator: write emulator::State) -> BitUnpacker {
+        let info = emulator.cpu.registers[2]
+        let source_width = u32.from(bus::read8(emulator, info.wrapping_add(2)))
+        let destination_width = u32.from(bus::read8(emulator, info.wrapping_add(3)))
+        var source_mask: u32 = 4294967295
+        var destination_mask: u32 = 4294967295
+        if source_width < 32 {
+            source_mask = (1 << source_width) - 1
+        }
+        if destination_width < 32 {
+            destination_mask = (1 << destination_width) - 1
+        }
+        let data_offset = bus::read32(emulator, info.wrapping_add(4))
+        return BitUnpacker {
+            source: emulator.cpu.registers[0]
+            destination: emulator.cpu.registers[1]
+            length: u32.from(bus::read16(emulator, info))
+            source_width: source_width
+            destination_width: destination_width
+            source_mask: source_mask
+            destination_mask: destination_mask
+            offset: data_offset & 2147483647
+            zero_data: data_offset >> 31 != 0
+            output: 0
+            output_bits: 0
+        }
+    }
+
+    fn unpack_byte(emulator: write emulator::State, unpacker: write BitUnpacker, byte: u8) -> void {
+        var position: u32 = 0
+        while position < 8 {
+            let value = u32.from(byte) >> position & unpacker.source_mask
+            var expanded: u32 = 0
+            if value != 0 {
+                expanded = value.wrapping_add(unpacker.offset)
+            }
+            if value == 0 {
+                if unpacker.zero_data {
+                    expanded = unpacker.offset
+                }
+            }
+            expanded = expanded & unpacker.destination_mask
+            unpacker.output = unpacker.output | expanded << unpacker.output_bits
+            unpacker.output_bits = unpacker.output_bits + unpacker.destination_width
+            position = position + unpacker.source_width
+            if unpacker.output_bits >= 32 {
+                bus::write32(emulator, unpacker.destination, unpacker.output)
+                unpacker.destination = unpacker.destination.wrapping_add(4)
+                unpacker.output = 0
+                unpacker.output_bits = 0
+            }
+        }
+        return
+    }
+}

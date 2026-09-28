@@ -1,0 +1,164 @@
+module video {
+    struct ObjectPoint {
+        object: usize
+        line: usize
+        x: usize
+    }
+
+    struct ObjectSample {
+        point: ObjectPoint
+        control: u16
+        size: [usize; 2]
+        render_size: [usize; 2]
+    }
+
+    struct ObjectPalette {
+        attr2: u16
+        x: usize
+        y: usize
+        size: [usize; 2]
+        color_256: bool
+        control: u16
+    }
+
+    fn object_pixel(memory: memory::State, sample: ObjectSample) -> LayerPixel {
+        let base = sample.point.object * OBJECT_ENTRY_BYTES
+        let attr0 = oam16(memory, base)
+        let attr1 = oam16(memory, base + 2)
+        let attr2 = oam16(memory, base + 4)
+        let coordinates = object_coordinates(memory, sample)
+        if coordinates[0] < 0 {
+            return empty_object_pixel()
+        }
+        if coordinates[1] < 0 {
+            return empty_object_pixel()
+        }
+        let local_x = usize.from(coordinates[0])
+        let local_y = usize.from(coordinates[1])
+        let color_256 = attr0 & OBJECT_256_COLOR != 0
+        if sample.control & MODE_MASK >= MODE_DIRECT {
+            if attr2 & TILE_INDEX_MASK < OBJECT_BITMAP_FIRST_TILE {
+                return empty_object_pixel()
+            }
+        }
+        let palette = ObjectPalette {
+            attr2: attr2
+            x: local_x
+            y: local_y
+            size: sample.size
+            color_256: color_256
+            control: sample.control
+        }
+        let palette_index = object_palette(memory, palette)
+        return LayerPixel {
+            visible: palette_index != 0
+            color: palette_color(memory, palette_index, true)
+            priority: u8.from(attr2 >> 10 & 3)
+            order: OBJECT_ORDER
+            layer: OBJECT_LAYER
+            semi: attr0 >> OBJECT_MODE_SHIFT & OBJECT_MODE_MASK == OBJECT_MODE_ALPHA
+        }
+    }
+
+    fn object_coordinates(memory: memory::State, sample: ObjectSample) -> [i32; 2] {
+        let base = sample.point.object * OBJECT_ENTRY_BYTES
+        let attr0 = oam16(memory, base)
+        let attr1 = oam16(memory, base + 2)
+        let origin_x = usize.from(attr1 & OBJECT_X_MASK)
+        var local_x = (sample.point.x + OBJECT_X_RANGE - origin_x) % OBJECT_X_RANGE
+        var local_y = (sample.point.line + OBJECT_Y_RANGE - usize.from(attr0 & OBJECT_Y_MASK)) % OBJECT_Y_RANGE
+        if local_x >= sample.render_size[0] {
+            return [-1, -1]
+        }
+        var mosaic_x: usize = 1
+        var mosaic_y: usize = 1
+        if attr0 & OBJECT_MOSAIC != 0 {
+            let mosaic = memory::io_read16(memory, video::MOSAIC)
+            mosaic_x = usize.from(mosaic >> 8 & 15) + 1
+            mosaic_y = usize.from(mosaic >> 12 & 15) + 1
+        }
+        local_x = local_x - local_x % mosaic_x
+        local_y = local_y - local_y % mosaic_y
+        if attr0 & OBJECT_AFFINE == 0 {
+            if attr1 & OBJECT_FLIP_X != 0 {
+                local_x = sample.size[0] - 1 - local_x
+            }
+            if attr1 & OBJECT_FLIP_Y != 0 {
+                local_y = sample.size[1] - 1 - local_y
+            }
+            return [i32.from(local_x), i32.from(local_y)]
+        }
+        return object_affine_coordinates(memory, sample, [local_x, local_y])
+    }
+
+    fn object_affine_coordinates(
+        memory: memory::State,
+        sample: ObjectSample,
+        local: [usize; 2]
+    ) -> [i32; 2] {
+        let base = sample.point.object * OBJECT_ENTRY_BYTES
+        let attr1 = oam16(memory, base + 2)
+        let matrix = usize.from(attr1 >> 9 & 31) * OBJECT_MATRIX_BYTES
+        let pa = signed16(oam16(memory, matrix + OBJECT_MATRIX_A))
+        let pb = signed16(oam16(memory, matrix + OBJECT_MATRIX_B))
+        let pc = signed16(oam16(memory, matrix + OBJECT_MATRIX_C))
+        let pd = signed16(oam16(memory, matrix + OBJECT_MATRIX_D))
+        let relative_x = i32.from(local[0]) - 1 - i32.from(sample.render_size[0] / 2)
+        let relative_y = i32.from(local[1]) - i32.from(sample.render_size[1] / 2)
+        let texture_x = (pa * relative_x + pb * relative_y >> 8) + i32.from(sample.size[0] / 2)
+        let texture_y = (pc * relative_x + pd * relative_y >> 8) + i32.from(sample.size[1] / 2)
+        if texture_x < 0 {
+            return [-1, -1]
+        }
+        if texture_y < 0 {
+            return [-1, -1]
+        }
+        if texture_x >= i32.from(sample.size[0]) {
+            return [-1, -1]
+        }
+        if texture_y >= i32.from(sample.size[1]) {
+            return [-1, -1]
+        }
+        return [texture_x, texture_y]
+    }
+
+    fn object_palette(memory: memory::State, palette: ObjectPalette) -> usize {
+        let tile = usize.from(palette.attr2 & TILE_INDEX_MASK)
+        var base_tile = tile
+        if palette.color_256 {
+            if palette.control & OBJECT_MAPPING_LINEAR == 0 {
+                base_tile = tile & ~usize.from(1)
+            }
+        }
+        var tile_stride = palette.size[0] / TILE_SIDE
+        if palette.control & OBJECT_MAPPING_LINEAR == 0 {
+            tile_stride = SCREEN_BLOCK_SIDE
+        }
+        var tile_offset = palette.y / TILE_SIDE * tile_stride + palette.x / TILE_SIDE
+        if palette.color_256 {
+            tile_offset = tile_offset * 2
+        }
+        let row = palette.y % TILE_SIDE
+        let column = palette.x % TILE_SIDE
+        if palette.color_256 {
+            return usize.from(memory.vram[OBJECT_VRAM +(base_tile + tile_offset) * TILE_4BPP_BYTES + row * TILE_SIDE + column])
+        }
+        let packed = memory.vram[OBJECT_VRAM +(base_tile + tile_offset) * TILE_4BPP_BYTES + row * 4 + column / 2]
+        let value = usize.from(packed >> u8.from((column % 2) * 4) & 15)
+        if value == 0 {
+            return 0
+        }
+        return value + usize.from(palette.attr2 >> 12) * PALETTE_BANK_COLORS
+    }
+
+    fn empty_object_pixel() -> LayerPixel {
+        return LayerPixel {
+            visible: false
+            color: 0
+            priority: 4
+            order: OBJECT_ORDER
+            layer: OBJECT_LAYER
+            semi: false
+        }
+    }
+}

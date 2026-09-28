@@ -1,0 +1,142 @@
+fn test_audio_buffer() -> u32 {
+    let startup = test_audio_queue_startup();
+    if startup != 0 {
+        return startup
+    }
+    let clock = test_audio_queue_clock();
+    if clock != 0 {
+        return clock
+    }
+    test_audio_underrun_playback()
+}
+
+fn test_audio_queue_startup() -> u32 {
+    if app::audio_frames_for_millis(0, 40) != 0 {
+        return 86
+    }
+    if app::audio_frames_for_millis(32768, 40) != 1311 {
+        return 87
+    }
+    if app::audio_frames_for_millis(262144, 40) != 10486 {
+        return 88
+    }
+    var queue = app::new_audio_queue(32768)
+    if queue.target_frames != 2622 {
+        return 89
+    }
+    if app::audio_queue_push(queue, 1310) {
+        return 90
+    }
+    if app::audio_queue_push(queue, 1) == false {
+        return 91
+    }
+    queue.queued_frames = 18446744073709551614
+    if app::audio_queue_push(queue, 2) == false {
+        return 92
+    }
+    if queue.queued_frames != 18446744073709551615 {
+        return 354
+    }
+    0
+}
+
+fn test_audio_queue_clock() -> u32 {
+    var queue = app::new_audio_queue(100)
+    app::audio_queue_push(queue, 100)
+    app::audio_queue_start(queue, 1000)
+    let half = app::AudioClock {
+        now: 1500, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_queue_advance(queue, half) {
+        return 355
+    }
+    if queue.queued_frames != 50 {
+        return 356
+    }
+    let exact = app::AudioClock {
+        now: 2000, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_queue_advance(queue, exact) {
+        return 357
+    }
+    if queue.queued_frames != 0 {
+        return 358
+    }
+    let late = app::AudioClock {
+        now: 2020, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_queue_advance(queue, late) == false {
+        return 359
+    }
+    if queue.underrun_frames != 2 {
+        return 360
+    }
+    app::audio_queue_push(queue, 9)
+    app::audio_queue_start(queue, 0)
+    let fraction = app::AudioClock {
+        now: 99, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_queue_advance(queue, fraction) {
+        return 362
+    }
+    if queue.queued_frames != 0 {
+        return 363
+    }
+    test_audio_queue_scheduling(queue)
+}
+
+fn test_audio_queue_scheduling(queue: write app::AudioQueue) -> u32 {
+    queue.queued_frames = 10
+    queue.target_frames = 8
+    let wait = app::AudioClock {
+        now: 0, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_queue_wait_ticks(queue, wait) != 20 {
+        return 364
+    }
+    if app::audio_queue_should_render(queue) == false {
+        return 365
+    }
+    0
+}
+
+fn test_audio_underrun_playback() -> u32 {
+    var queue = app::new_audio_queue(100)
+    app::audio_queue_push(queue, 10)
+    app::audio_queue_start(queue, 1000)
+    let late = app::AudioClock {
+        now: 1200, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_playback_advance(queue, true, late) == false {
+        return 411
+    }
+    if queue.queued_frames != 0 {
+        return 412
+    }
+    if queue.underrun_frames != 10 {
+        return 413
+    }
+    app::audio_queue_push(queue, 4)
+    let recovering = app::AudioClock {
+        now: 1220, ticks_per_second: 1000, rate: 100
+    }
+    if app::audio_playback_advance(queue, true, recovering) == false {
+        return 414
+    }
+    if queue.queued_frames != 2 {
+        return 415
+    }
+    var stopped = app::new_audio_queue(100)
+    app::audio_queue_push(stopped, 10)
+    app::audio_queue_start(stopped, 1000)
+    if app::audio_playback_advance(stopped, false, late) {
+        return 416
+    }
+    if stopped.queued_frames != 10 {
+        return 417
+    }
+    if stopped.underrun_frames != 0 {
+        return 418
+    }
+    return 0
+}

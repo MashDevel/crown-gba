@@ -1,0 +1,17 @@
+fn main(arguments: Arguments) -> u32 {
+    if arguments.length() != 3 {
+        return 2
+    }
+    let image = cartridge::load(arguments[1])
+    match move image {
+        Err(code) => code
+        Ok(cartridge) => {
+            var emulator = emulator::new(move cartridge)
+            match arguments[2] {
+                "cpu" => validation::validate(emulator, 1_000_000)
+                "frames" => validation::validate_game(emulator)
+                _ => 2
+            }
+        }
+    }
+}

@@ -1,0 +1,129 @@
+module app {
+    struct AudioQueue {
+        queued_frames: u64
+        start_frames: u32
+        target_frames: u32
+        last_tick: u64
+        remainder: u64
+        underrun_frames: u64
+    }
+
+    struct AudioClock {
+        now: u64
+        ticks_per_second: u64
+        rate: u32
+    }
+
+    fn audio_frames_for_millis(rate: u32, millis: u32) -> u32 {
+        let frames = (u64.from(rate) * u64.from(millis) + 999) / 1000
+        if frames > 4294967295 {
+            return 4294967295
+        }
+        return u32.from(frames)
+    }
+
+    fn new_audio_queue(rate: u32) -> AudioQueue {
+        return AudioQueue {
+            queued_frames: 0
+            start_frames: audio_frames_for_millis(rate, 40)
+            target_frames: audio_frames_for_millis(rate, 80)
+            last_tick: 0
+            remainder: 0
+            underrun_frames: 0
+        }
+    }
+
+    fn audio_queue_push(queue: write AudioQueue, frames: u32) -> bool {
+        let added = u64.from(frames)
+        if queue.queued_frames > 18446744073709551615 - added {
+            queue.queued_frames = 18446744073709551615
+        } else {
+            queue.queued_frames = queue.queued_frames + added
+        }
+        return queue.queued_frames >= u64.from(queue.start_frames)
+    }
+
+    fn audio_queue_start(queue: write AudioQueue, now: u64) -> void {
+        queue.last_tick = now
+        queue.remainder = 0
+        return
+    }
+
+    fn audio_elapsed_frames(queue: write AudioQueue, clock: AudioClock) -> u64 {
+        if clock.ticks_per_second == 0 {
+            return 0
+        }
+        if clock.rate == 0 {
+            return 0
+        }
+        if clock.now <= queue.last_tick {
+            return 0
+        }
+        let elapsed = clock.now - queue.last_tick
+        let seconds = elapsed / clock.ticks_per_second
+        let ticks = elapsed % clock.ticks_per_second
+        let rate = u64.from(clock.rate)
+        var whole: u64 = 18446744073709551615
+        if seconds <= 18446744073709551615 / rate {
+            whole = seconds * rate
+        }
+        let partial = ticks * rate + queue.remainder
+        queue.remainder = partial % clock.ticks_per_second
+        queue.last_tick = clock.now
+        let fraction = partial / clock.ticks_per_second
+        if whole > 18446744073709551615 - fraction {
+            return 18446744073709551615
+        }
+        return whole + fraction
+    }
+
+    fn audio_queue_advance(queue: write AudioQueue, clock: AudioClock) -> bool {
+        let elapsed = audio_elapsed_frames(queue, clock)
+        if elapsed <= queue.queued_frames {
+            queue.queued_frames = queue.queued_frames - elapsed
+            return false
+        }
+        let missing = elapsed - queue.queued_frames
+        queue.queued_frames = 0
+        if queue.underrun_frames > 18446744073709551615 - missing {
+            queue.underrun_frames = 18446744073709551615
+        } else {
+            queue.underrun_frames = queue.underrun_frames + missing
+        }
+        return true
+    }
+
+    fn audio_playback_advance(
+        queue: write AudioQueue,
+        playing: bool,
+        clock: AudioClock
+    ) -> bool {
+        if playing == false {
+            return false
+        }
+        audio_queue_advance(queue, clock)
+        return true
+    }
+
+    fn audio_queue_should_render(queue: AudioQueue) -> bool {
+        return queue.queued_frames >= u64.from(queue.start_frames)
+    }
+
+    fn audio_queue_wait_ticks(queue: AudioQueue, clock: AudioClock) -> u64 {
+        if clock.ticks_per_second == 0 {
+            return 0
+        }
+        if clock.rate == 0 {
+            return 0
+        }
+        if queue.queued_frames <= u64.from(queue.target_frames) {
+            return 0
+        }
+        let excess = queue.queued_frames - u64.from(queue.target_frames)
+        if excess >= u64.from(clock.rate) {
+            return clock.ticks_per_second
+        }
+        let scaled = excess * clock.ticks_per_second
+        return (scaled + u64.from(clock.rate) - 1) / u64.from(clock.rate)
+    }
+}

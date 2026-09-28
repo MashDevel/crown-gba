@@ -1,0 +1,135 @@
+module emulator {
+    const POLL_LOAD_MASK: u32 = 0xfff00fff
+    const POLL_LOAD_HALFWORD: u32 = 0xe1d000b0
+    const POLL_COMPARE_MASK: u32 = 0xfff0ff00
+    const POLL_COMPARE_IMMEDIATE: u32 = 0xe3500000
+    const POLL_BRANCH_MASK: u32 = 0x0fffffff
+    const POLL_BRANCH_BACK: u32 = 0xafffffc
+    const POLL_CYCLES: u32 = 7
+    const POLL_INSTRUCTIONS: u64 = 3
+    const MAX_POLL_ADVANCE: u32 = 1024
+
+    struct PollLoop {
+        register: usize
+        compare: u32
+        branch: u32
+    }
+
+    fn poll_cpu_ready(emulator: State) -> bool {
+        if emulator.cpu.halted {
+            return false
+        }
+        if cpu::thumb(emulator.cpu) {
+            return false
+        }
+        if emulator.cpu.intr_wait_mask != 0 {
+            return false
+        }
+        if keypad::irq_requested(emulator.memory) {
+            return false
+        }
+        if devices::interrupt_pending(emulator) {
+            if cpu::flag(emulator.cpu, cpu::IRQ_DISABLE) == false {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn poll_loop(emulator: State) -> Option<PollLoop> {
+        let address = emulator.cpu.registers[cpu::PC]
+        if address >> memory::REGION_SHIFT != memory::region::IWRAM {
+            return None()
+        }
+        if address & 3 != 0 {
+            return None()
+        }
+        let index = usize.from(address) & memory::IWRAM_MASK
+        if index > memory::IWRAM_SIZE - 12 {
+            return None()
+        }
+        let load = memory::vector_read32(emulator.memory.iwram, index)
+        if load & POLL_LOAD_MASK != POLL_LOAD_HALFWORD {
+            return None()
+        }
+        let base = usize.from(load >> 16 & 15)
+        let data = usize.from(load >> 12 & 15)
+        if base == cpu::PC || data == cpu::PC || base == data {
+            return None()
+        }
+        if emulator.cpu.registers[base] != memory::io_address(video::VCOUNT) {
+            return None()
+        }
+        return poll_comparison(emulator, index, data)
+    }
+
+    fn poll_comparison(emulator: State, index: usize, data: usize) -> Option<PollLoop> {
+        let compare = memory::vector_read32(emulator.memory.iwram, index + 4)
+        if compare & POLL_COMPARE_MASK != POLL_COMPARE_IMMEDIATE {
+            return None()
+        }
+        if usize.from(compare >> 16 & 15) != data {
+            return None()
+        }
+        let branch = memory::vector_read32(emulator.memory.iwram, index + 8)
+        if branch & POLL_BRANCH_MASK != POLL_BRANCH_BACK {
+            return None()
+        }
+        if branch != emulator.last_open_bus {
+            return None()
+        }
+        return Some(PollLoop {
+                register: data, compare: compare & 255, branch: branch
+            })
+    }
+
+    fn poll_state_matches(emulator: State, polling: PollLoop) -> bool {
+        let value = u32.from(memory::io_read16(emulator.memory, video::VCOUNT))
+        if emulator.cpu.registers[polling.register] != value {
+            return false
+        }
+        let difference = value.wrapping_sub(polling.compare)
+        var flags = difference &(1 << cpu::NEGATIVE)
+        if difference == 0 {
+            flags = flags |(1 << cpu::ZERO)
+        }
+        if value >= polling.compare {
+            flags = flags |(1 << cpu::CARRY)
+        }
+        if emulator.cpu.cpsr & cpu::CONDITION_FLAGS != flags {
+            return false
+        }
+        return cpu::arm::condition(emulator.cpu, polling.branch >> 28)
+    }
+
+    fn skip_poll_loop(emulator: write State) -> bool {
+        if poll_cpu_ready(emulator) == false {
+            return false
+        }
+        let next = devices::next_chunk(emulator, MAX_POLL_ADVANCE)
+        if next <= POLL_CYCLES {
+            return false
+        }
+        let repeats = (next - 1) / POLL_CYCLES
+        let cycles = repeats * POLL_CYCLES
+        if devices::can_advance_quiet(emulator, cycles) == false {
+            return false
+        }
+        match poll_loop(emulator) {
+            None => {
+                return false
+            }
+            Some(polling) => {
+                if poll_state_matches(emulator, polling) == false {
+                    return false
+                }
+            }
+        }
+        devices::advance_quiet(emulator, cycles)
+        emulator.instructions = emulator.instructions.wrapping_add(u64.from(repeats) * POLL_INSTRUCTIONS)
+        emulator.cycles = emulator.cycles.wrapping_add(u64.from(cycles))
+        emulator.access_penalty_cycles = 0
+        emulator.gamepak_seq_valid = false
+        return true
+    }
+}

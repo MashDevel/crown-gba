@@ -1,0 +1,44 @@
+module platform {
+    extern "c" {
+        fn bedrock_open(width: usize, height: usize, title: RawPtr<u8>) -> RawPtr<u8> = "crown_surface_open"
+        fn bedrock_close(handle: RawPtr<u8>) -> void = "crown_surface_close"
+        fn bedrock_event(output: RawPtr<u8>) -> i32 = "crown_surface_event"
+        fn bedrock_present(handle: RawPtr<u8>, pixels: RawPtr<u32>, dimensions: u64) -> i32 = "crown_surface_present"
+        fn bedrock_ticks() -> u64 = "crown_clock_ticks"
+        fn bedrock_frequency() -> u64 = "crown_clock_frequency"
+        fn bedrock_sleep(ticks: usize) -> void = "crown_sleep"
+    }
+
+    opaque resource BedrockWindow {
+        handle: RawPtr<u8>
+        drop {
+            unsafe {
+                bedrock_close(handle)
+            }
+        }
+    }
+
+    fn open_bedrock_window() -> Result<BedrockWindow, u32> {
+        unsafe {
+            let handle = bedrock_open(720, 480, "Crown GBA\0".as_raw())
+            if handle == RawPtr<u8>.from_address(0) {
+                return Err(82)
+            }
+            return Ok(BedrockWindow {
+                    handle: handle
+                })
+        }
+    }
+
+    fn present_bedrock(window: BedrockWindow, pixels: Vec<u32>) -> u32 {
+        if pixels.length() != 38400 {
+            return 86
+        }
+        unsafe {
+            if bedrock_present(window.handle, pixels.as_raw(), 1030792151200) != 0 {
+                return 86
+            }
+        }
+        return 0
+    }
+}

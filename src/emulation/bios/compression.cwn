@@ -1,0 +1,188 @@
+module bios {
+    struct Stream {
+        source: u32
+        destination: u32
+        remaining: u32
+        vram: bool
+    }
+
+    fn lz77(emulator: write emulator::State, vram: bool) -> void {
+        let header = bus::read32(emulator, emulator.cpu.registers[0])
+        if header & 255 != 16 {
+            return
+        }
+        var stream = Stream {
+            source: emulator.cpu.registers[0].wrapping_add(4)
+            destination: emulator.cpu.registers[1]
+            remaining: header >> 8
+            vram: vram
+        }
+        while stream.remaining != 0 {
+            let flags = bus::read8(emulator, stream.source)
+            stream.source = stream.source.wrapping_add(1)
+            var bit: u32 = 0
+            while bit < 8 {
+                if stream.remaining == 0 {
+                    break
+                }
+                if u32.from(flags) &(128 >> bit) == 0 {
+                    lz_literal(emulator, stream)
+                } else {
+                    lz_copy(emulator, stream)
+                }
+                bit = bit + 1
+            }
+        }
+        return
+    }
+
+    fn lz_literal(emulator: write emulator::State, stream: write Stream) -> void {
+        let value = bus::read8(emulator, stream.source)
+        stream.source = stream.source.wrapping_add(1)
+        stream_write(emulator, stream, value)
+        return
+    }
+
+    fn lz_copy(emulator: write emulator::State, stream: write Stream) -> void {
+        let first = bus::read8(emulator, stream.source)
+        let second = bus::read8(emulator, stream.source.wrapping_add(1))
+        stream.source = stream.source.wrapping_add(2)
+        let length = u32.from(first >> 4) + 3
+        let displacement = (u32.from(first & 15) << 8 | u32.from(second)) + 1
+        var copied: u32 = 0
+        while copied < length {
+            if stream.remaining == 0 {
+                break
+            }
+            let address = stream.destination.wrapping_sub(displacement)
+            let value = bus::read8(emulator, address)
+            stream_write(emulator, stream, value)
+            copied = copied + 1
+        }
+        return
+    }
+
+    fn run_length(emulator: write emulator::State, vram: bool) -> void {
+        let header = bus::read32(emulator, emulator.cpu.registers[0])
+        if header & 255 != 48 {
+            return
+        }
+        var stream = Stream {
+            source: emulator.cpu.registers[0].wrapping_add(4)
+            destination: emulator.cpu.registers[1]
+            remaining: header >> 8
+            vram: vram
+        }
+        while stream.remaining != 0 {
+            let control = bus::read8(emulator, stream.source)
+            stream.source = stream.source.wrapping_add(1)
+            if control & 128 != 0 {
+                run_repeat(emulator, stream, control)
+            } else {
+                run_literals(emulator, stream, control)
+            }
+        }
+        return
+    }
+
+    fn run_repeat(
+        emulator: write emulator::State,
+        stream: write Stream,
+        control: u8
+    ) -> void {
+        let value = bus::read8(emulator, stream.source)
+        stream.source = stream.source.wrapping_add(1)
+        var count = u32.from(control & 127) + 3
+        while count != 0 {
+            if stream.remaining == 0 {
+                break
+            }
+            stream_write(emulator, stream, value)
+            count = count - 1
+        }
+        return
+    }
+
+    fn run_literals(
+        emulator: write emulator::State,
+        stream: write Stream,
+        control: u8
+    ) -> void {
+        var count = u32.from(control) + 1
+        while count != 0 {
+            if stream.remaining == 0 {
+                break
+            }
+            let value = bus::read8(emulator, stream.source)
+            stream.source = stream.source.wrapping_add(1)
+            stream_write(emulator, stream, value)
+            count = count - 1
+        }
+        return
+    }
+
+    fn diff8(emulator: write emulator::State, vram: bool) -> void {
+        let header = bus::read32(emulator, emulator.cpu.registers[0])
+        if header & 255 != 128 {
+            return
+        }
+        var stream = Stream {
+            source: emulator.cpu.registers[0].wrapping_add(4)
+            destination: emulator.cpu.registers[1]
+            remaining: header >> 8
+            vram: vram
+        }
+        var value: u8 = 0
+        while stream.remaining != 0 {
+            let difference = bus::read8(emulator, stream.source)
+            value = value.wrapping_add(difference)
+            stream.source = stream.source.wrapping_add(1)
+            stream_write(emulator, stream, value)
+        }
+        return
+    }
+
+    fn diff16(emulator: write emulator::State) -> void {
+        let header = bus::read32(emulator, emulator.cpu.registers[0])
+        if header & 255 != 129 {
+            return
+        }
+        var source = emulator.cpu.registers[0].wrapping_add(4)
+        var destination = emulator.cpu.registers[1]
+        var remaining = header >> 8
+        var value: u16 = 0
+        while remaining >= 2 {
+            let difference = bus::read16(emulator, source)
+            value = value.wrapping_add(difference)
+            bus::write16(emulator, destination, value)
+            source = source.wrapping_add(2)
+            destination = destination.wrapping_add(2)
+            remaining = remaining - 2
+        }
+        return
+    }
+
+    fn stream_write(
+        emulator: write emulator::State,
+        stream: write Stream,
+        value: u8
+    ) -> void {
+        if stream.remaining == 0 {
+            return
+        }
+        if stream.vram {
+            let aligned = stream.destination & memory::HALFWORD_ADDRESS_MASK
+            let current = bus::read16(emulator, aligned)
+            var output = current & 65280 | u16.from(value)
+            if stream.destination & 1 != 0 {
+                output = current & 255 | u16.from(value) << 8
+            }
+            bus::write16(emulator, aligned, output)
+        } else {
+            bus::write8(emulator, stream.destination, value)
+        }
+        stream.destination = stream.destination.wrapping_add(1)
+        stream.remaining = stream.remaining - 1
+        return
+    }
+}

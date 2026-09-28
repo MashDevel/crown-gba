@@ -1,0 +1,48 @@
+fn resample_tone(rate: u32, frequency: f64) -> app::SampleRing {
+    var samples = Vec<i32>.new()
+    for index in 0..8192 {
+        let angle = 6.283185307179586 * frequency * f64.from(index) / f64.from(rate)
+        let value = i32.from(host::native_sin(angle) * 256.0)
+        samples.push(value)
+        samples.push(-value)
+    }
+    var ring = app::sample_ring()
+    app::ring_push(ring, samples, rate)
+    return move ring
+}
+
+fn resample_tone_power(rate: u32, frequency: f64) -> f64 {
+    var ring = resample_tone(rate, frequency)
+    var power: f64 = 0.0
+    var count: usize = 0
+    while app::ring_frames(ring) != 0 {
+        let left = f64.from(app::ring_sample(ring))
+        let right = f64.from(app::ring_sample(ring))
+        if left != -right {
+            return -1.0
+        }
+        if count >= 64 {
+            power = power + left * left
+        }
+        count = count + 1
+    }
+    return power / f64.from(count - 64)
+}
+
+fn test_resample_spectrum() -> u32 {
+    let rates: [u32; 4] = [32768, 65536, 131072, 262144]
+    for index in 0..4 {
+        let power = resample_tone_power(rates[index], 1000.0)
+        if power < 0.06 || power > 0.08 {
+            return 212
+        }
+    }
+    let frequencies: [f64; 3] = [30000.0, 40000.0, 80000.0]
+    for index in 0..3 {
+        let power = resample_tone_power(rates[index + 1], frequencies[index])
+        if power < 0.0 || power > 0.001 {
+            return 213
+        }
+    }
+    return test_resample_stream()
+}

@@ -1,0 +1,249 @@
+module backup {
+    fn save_path(path: TextView) -> Result<host::Buffer, u32> {
+        var end = path.length()
+        var extension = path.length()
+        var index: usize = 0
+        while index < path.length() {
+            if path[index] == 47 {
+                extension = path.length()
+            }
+            if path[index] == 46 {
+                extension = index
+            }
+            index = index + 1
+        }
+        if extension != path.length() {
+            end = extension
+        }
+        let allocated = host::allocate_buffer(end + 5)
+        match move allocated {
+            Ok(buffer) => {
+                var result = move buffer
+                index = 0
+                while index < end {
+                    host::buffer_set(result, index, path[index])
+                    index = index + 1
+                }
+                host::buffer_set(result, end, 46)
+                host::buffer_set(result, end + 1, 115)
+                host::buffer_set(result, end + 2, 97)
+                host::buffer_set(result, end + 3, 118)
+                host::buffer_set(result, end + 4, 0)
+                return Ok(move result)
+            }
+            Err(code) => {
+                return Err(code)
+            }
+        }
+    }
+
+    fn load(path: TextView, memory: write memory::State) -> u32 {
+        let created = save_path(path)
+        match move created {
+            Ok(save_path) => {
+                return load_backup_path(save_path, memory)
+            }
+            Err(code) => {
+                return code
+            }
+        }
+    }
+
+    fn load_backup_path(path: host::Buffer, memory: write memory::State) -> u32 {
+        let opened = host::open_buffer_file(path, 0)
+        match move opened {
+            Some(file) => {
+                return load_backup_descriptor(move file, memory)
+            }
+            None => {
+                return 0
+            }
+        }
+    }
+
+    fn load_backup_descriptor(file: take host::File, memory: write memory::State) -> u32 {
+        let size = host::seek_host_file(file, 0, 2)
+        if size < 0 {
+            return 70
+        }
+        if size == 0 {
+            return 0
+        }
+        if memory.save_kind == backup::Kind::Absent() {
+            memory.save_kind = kind_from_size(usize.from(size))
+        }
+        if size_valid(memory, usize.from(size)) == false {
+            return 71
+        }
+        if host::seek_host_file(file, 0, 0) < 0 {
+            return 72
+        }
+        let allocated = host::allocate_buffer(usize.from(size))
+        match move allocated {
+            Ok(buffer) => {
+                var loaded_buffer = move buffer
+                if host::read_host_file(file, loaded_buffer, usize.from(size)) == false {
+                    return 73
+                }
+                let result = read_backup_file(loaded_buffer, memory)
+                return result
+            }
+            Err(code) => {
+                return code
+            }
+        }
+    }
+
+    fn read_backup_file(buffer: host::Buffer, memory: write memory::State) -> u32 {
+        var offset: usize = 0
+        let length = host::buffer_length(buffer)
+        while offset < length {
+            memory.backup[offset] = host::buffer_get(buffer, offset)
+            offset = offset + 1
+        }
+        if memory.save_kind == backup::Kind::Eeprom() {
+            memory.eeprom_address_bits = EEPROM_LARGE_ADDRESS_BITS
+            if length == EEPROM_SMALL_SIZE {
+                memory.eeprom_address_bits = EEPROM_SMALL_ADDRESS_BITS
+            }
+        }
+        return 0
+    }
+
+    fn size_valid(memory: memory::State, size: usize) -> bool {
+        if memory.save_kind == Kind::Eeprom() {
+            return size == EEPROM_SMALL_SIZE || size == EEPROM_LARGE_SIZE
+        }
+        let expected = fixed_size(memory.save_kind)
+        return expected != 0 && size == expected
+    }
+
+    fn save_backup(path: TextView, memory: memory::State) -> u32 {
+        let size = data_size(memory)
+        if size == 0 {
+            return 0
+        }
+        let created_path = save_path(path)
+        match move created_path {
+            Ok(save_path) => {
+                return save_backup_path(save_path, memory, size)
+            }
+            Err(code) => {
+                return code
+            }
+        }
+    }
+
+    fn save_backup_path(
+        path: host::Buffer,
+        memory: memory::State,
+        size: usize
+    ) -> u32 {
+        let allocated = host::allocate_buffer(size)
+        match move allocated {
+            Ok(buffer) => {
+                var result = move buffer
+                var index: usize = 0
+                while index < size {
+                    host::buffer_set(result, index, memory.backup[index])
+                    index = index + 1
+                }
+                return write_backup_file(path, result)
+            }
+            Err(code) => {
+                return code
+            }
+        }
+    }
+
+    fn temporary_backup_path(path: host::Buffer) -> Result<host::Buffer, u32> {
+        let suffix: [u8; 11] = [46, 116, 109, 112, 46, 88, 88, 88, 88, 88, 88]
+        let path_length = host::buffer_length(path)
+        let allocated = host::allocate_buffer(path_length + 11)
+        match move allocated {
+            Ok(buffer) => {
+                var result = move buffer
+                var index: usize = 0
+                while index + 1 < path_length {
+                    host::buffer_set(result, index, host::buffer_get(path, index))
+                    index = index + 1
+                }
+                var suffix_index: usize = 0
+                while suffix_index < 11 {
+                    host::buffer_set(result, index, suffix[suffix_index])
+                    suffix_index = suffix_index + 1
+                    index = index + 1
+                }
+                host::buffer_set(result, index, 0)
+                return Ok(move result)
+            }
+            Err(code) => {
+                return Err(code)
+            }
+        }
+    }
+
+    fn write_backup_descriptor(file: write host::File, buffer: host::Buffer) -> u32 {
+        if host::write_host_buffer(file, buffer, host::buffer_length(buffer)) == false {
+            host::close_host_file(file)
+            return 75
+        }
+        if host::sync_host_file(file) != 0 {
+            host::close_host_file(file);
+            return 77
+        }
+        if host::close_host_file(file) != 0 {
+            return 76
+        }
+        return 0
+    }
+
+    fn persist_backup_file(
+        path: host::Buffer,
+        temporary: take host::Buffer,
+        buffer: host::Buffer
+    ) -> u32 {
+        var working = move temporary
+        let opened = host::make_temporary_file(working)
+        match move opened {
+            Some(file) => {
+                var descriptor = move file
+                let written = write_backup_descriptor(descriptor, buffer)
+                if written != 0 {
+                    host::unlink_host_file(working)
+                    return written
+                }
+                if host::rename_host_file(working, path) != 0 {
+                    host::unlink_host_file(working)
+                    return 78
+                }
+                return 0
+            }
+            None => {
+                return 74
+            }
+        }
+    }
+
+    fn write_backup_file(path: host::Buffer, buffer: host::Buffer) -> u32 {
+        let created = temporary_backup_path(path)
+        match move created {
+            Ok(temporary) => {
+                return persist_backup_file(path, move temporary, buffer)
+            }
+            Err(code) => {
+                return code
+            }
+        }
+    }
+
+    fn data_size(memory: memory::State) -> usize {
+        if memory.save_kind == Kind::Eeprom() {
+            if memory.eeprom_address_bits == EEPROM_SMALL_ADDRESS_BITS {
+                return EEPROM_SMALL_SIZE
+            }
+            return EEPROM_LARGE_SIZE
+        }
+        return fixed_size(memory.save_kind)
+    }
+}

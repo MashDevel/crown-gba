@@ -1,0 +1,15 @@
+fn test_native_input() -> u32 {
+    let codes: [u64; 10] = [6, 7, 51, 36, 124, 123, 126, 125, 1, 0]
+    let masks: [u32; 10] = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+    var index: usize = 0
+    while index < 10 {
+        if app::key_mask(codes[index]) != masks[index] {
+            return 200 + u32.from(index)
+        }
+        index = index + 1
+    }
+    if app::key_mask(65535) != 0 {
+        return 210
+    }
+    return 0
+}

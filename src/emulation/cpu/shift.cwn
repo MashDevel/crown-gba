@@ -1,0 +1,176 @@
+module cpu {
+    module shift_kind {
+        const LOGICAL_LEFT: u32 = 0
+        const LOGICAL_RIGHT: u32 = 1
+        const ARITHMETIC_RIGHT: u32 = 2
+        const ROTATE_RIGHT: u32 = 3
+    }
+
+    struct ShiftResult {
+        value: u32
+        carry: bool
+    }
+
+    struct ShiftRequest {
+        value: u32
+        kind: u32
+        amount: u32
+        old_carry: bool
+    }
+
+    fn arm_shift(cpu: State, opcode: u32) -> ShiftResult {
+        let register_shifted = bits::bit_u32(opcode, 4)
+        let value = cpu::arm::operand_value(cpu, usize.from(opcode & 15), register_shifted)
+        let kind = opcode >> 5 & 3
+        let old_carry = flag(cpu, cpu::CARRY)
+        if register_shifted {
+            let register = usize.from(opcode >> 8 & 15)
+            let amount = read_register(cpu, register) & 255
+            let request = ShiftRequest {
+                value: value
+                kind: kind
+                amount: amount
+                old_carry: old_carry
+            }
+            return register_shift(request)
+        }
+        let amount = opcode >> 7 & 31
+        let request = ShiftRequest {
+            value: value
+            kind: kind
+            amount: amount
+            old_carry: old_carry
+        }
+        return immediate_shift(request)
+    }
+
+    fn immediate_shift(request: ShiftRequest) -> ShiftResult {
+        if request.kind == shift_kind::LOGICAL_LEFT {
+            if request.amount == 0 {
+                return ShiftResult {
+                    value: request.value, carry: request.old_carry
+                }
+            }
+            return shift_lsl(request.value, request.amount, false)
+        }
+        if request.kind == shift_kind::LOGICAL_RIGHT {
+            if request.amount == 0 {
+                return ShiftResult {
+                    value: 0, carry: request.value >> 31 != 0
+                }
+            }
+            return shift_lsr(request.value, request.amount, false)
+        }
+        if request.kind == shift_kind::ARITHMETIC_RIGHT {
+            if request.amount == 0 {
+                if request.value >> 31 != 0 {
+                    return ShiftResult {
+                        value: 4294967295, carry: true
+                    }
+                }
+                return ShiftResult {
+                    value: 0, carry: false
+                }
+            }
+            return shift_asr(request.value, request.amount, false)
+        }
+        if request.amount == 0 {
+            var high: u32 = 0
+            if request.old_carry {
+                high = 2147483648
+            }
+            return ShiftResult {
+                value: request.value >> 1 | high
+                carry: request.value & 1 != 0
+            }
+        }
+        return shift_ror(request.value, request.amount, false)
+    }
+
+    fn register_shift(request: ShiftRequest) -> ShiftResult {
+        if request.amount == 0 {
+            return ShiftResult {
+                value: request.value, carry: request.old_carry
+            }
+        }
+        if request.kind == shift_kind::LOGICAL_LEFT {
+            return shift_lsl(request.value, request.amount, false)
+        }
+        if request.kind == shift_kind::LOGICAL_RIGHT {
+            return shift_lsr(request.value, request.amount, false)
+        }
+        if request.kind == shift_kind::ARITHMETIC_RIGHT {
+            return shift_asr(request.value, request.amount, false)
+        }
+        return shift_ror(request.value, request.amount, false)
+    }
+
+    fn shift_lsl(value: u32, amount: u32, fallback: bool) -> ShiftResult {
+        if amount < 32 {
+            return ShiftResult {
+                value: value << amount, carry: value >>(32 - amount) & 1 != 0
+            }
+        }
+        if amount == 32 {
+            return ShiftResult {
+                value: 0, carry: value & 1 != 0
+            }
+        }
+        return ShiftResult {
+            value: 0, carry: fallback
+        }
+    }
+
+    fn shift_lsr(value: u32, amount: u32, fallback: bool) -> ShiftResult {
+        if amount < 32 {
+            return ShiftResult {
+                value: value >> amount, carry: value >>(amount - 1) & 1 != 0
+            }
+        }
+        if amount == 32 {
+            return ShiftResult {
+                value: 0, carry: value >> 31 != 0
+            }
+        }
+        return ShiftResult {
+            value: 0, carry: fallback
+        }
+    }
+
+    fn shift_asr(value: u32, amount: u32, fallback: bool) -> ShiftResult {
+        if amount < 32 {
+            let signed_amount = i32.from(amount)
+            let shifted = i32.from_bits(value) >> signed_amount
+            return ShiftResult {
+                value: u32.from_bits(shifted)
+                carry: value >>(amount - 1) & 1 != 0
+            }
+        }
+        if value >> 31 != 0 {
+            return ShiftResult {
+                value: 4294967295, carry: true
+            }
+        }
+        return ShiftResult {
+            value: 0, carry: fallback
+        }
+    }
+
+    fn shift_ror(value: u32, amount: u32, fallback: bool) -> ShiftResult {
+        let masked = amount & 31
+        if masked == 0 {
+            return ShiftResult {
+                value: value, carry: value >> 31 != 0
+            }
+        }
+        let result = bits::rotate_right_u32(value, masked)
+        if amount == 0 {
+            return ShiftResult {
+                value: result, carry: fallback
+            }
+        }
+        return ShiftResult {
+            value: result, carry: result >> 31 != 0
+        }
+    }
+}

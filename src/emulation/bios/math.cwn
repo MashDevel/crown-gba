@@ -1,0 +1,86 @@
+module bios {
+    fn div(cpu: write cpu::State, reversed: bool) -> void {
+        var numerator = i32.from_bits(cpu.registers[0])
+        var denominator = i32.from_bits(cpu.registers[1])
+        if reversed {
+            numerator = i32.from_bits(cpu.registers[1])
+            denominator = i32.from_bits(cpu.registers[0])
+        }
+        if denominator == 0 {
+            var quotient: i32 = 2147483647
+            if numerator < 0 {
+                quotient = -2147483648
+            }
+            cpu.registers[0] = u32.from_bits(quotient)
+            cpu.registers[1] = u32.from_bits(numerator)
+            cpu.registers[3] = 1
+            return
+        }
+        var quotient: i32 = -2147483648
+        var remainder: i32 = 0
+        if numerator != -2147483648 {
+            quotient = numerator / denominator
+            remainder = numerator % denominator
+        } else {
+            if denominator != -1 {
+                quotient = numerator / denominator
+                remainder = numerator % denominator
+            }
+        }
+        let quotient_bits = u32.from_bits(quotient)
+        cpu.registers[0] = quotient_bits
+        cpu.registers[1] = u32.from_bits(remainder)
+        var absolute = quotient_bits
+        if quotient < 0 {
+            let inverted = ~quotient_bits
+            absolute = inverted.wrapping_add(1)
+        }
+        cpu.registers[3] = absolute
+        return
+    }
+
+    fn sqrt(cpu: write cpu::State) -> void {
+        let value = cpu.registers[0]
+        var result: u32 = 0
+        var bit: u32 = 1073741824
+        while bit > value {
+            bit = bit >> 2
+        }
+        var remaining = value
+        while bit != 0 {
+            if remaining >= result.wrapping_add(bit) {
+                remaining = remaining - result - bit
+                result = result >> 1
+                result = result + bit
+            } else {
+                result = result >> 1
+            }
+            bit = bit >> 2
+        }
+        cpu.registers[0] = result
+        return
+    }
+
+    fn arctan(cpu: write cpu::State) -> void {
+        let raw = u16.from(cpu.registers[0] & 65535)
+        let tangent = f64.from(i16.from_bits(raw)) / 256.0
+        cpu.registers[0] = angle_units(host::native_atan(tangent))
+        return
+    }
+
+    fn arctan2(cpu: write cpu::State) -> void {
+        let raw_x = u16.from(cpu.registers[0] & 65535)
+        let raw_y = u16.from(cpu.registers[1] & 65535)
+        let x = f64.from(i16.from_bits(raw_x))
+        let y = f64.from(i16.from_bits(raw_y))
+        cpu.registers[0] = angle_units(host::native_atan2(y, x))
+        return
+    }
+
+    fn angle_units(radians: f64) -> u32 {
+        let scaled = host::native_round(radians * ANGLE_UNITS_PER_TURN / RADIANS_PER_TURN)
+        let angle = i32.from(scaled)
+        return u32.from_bits(angle) & 65535
+    }
+
+}

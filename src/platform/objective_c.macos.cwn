@@ -1,0 +1,132 @@
+module platform {
+    extern "c" {
+        fn raw_objc_pool_open() -> RawPtr<void> = "objc_autoreleasePoolPush"
+        fn objc_pool_close(pool: RawPtr<void>) -> void = "objc_autoreleasePoolPop"
+        fn objc_class(name: RawPtr<u8>) -> RawPtr<void> = "objc_getClass"
+        fn objc_selector(name: RawPtr<u8>) -> RawPtr<void> = "sel_registerName"
+        fn objc_pointer(receiver: RawPtr<void>, selector: RawPtr<void>) -> RawPtr<void> = "objc_msgSend"
+        fn objc_u32_pointer(receiver: RawPtr<void>, selector: RawPtr<void>) -> RawPtr<u32> = "objc_msgSend"
+        fn objc_float_channels(receiver: RawPtr<void>, selector: RawPtr<void>) -> RawPtr<RawPtr<f32>> = "objc_msgSend"
+        fn objc_unit(receiver: RawPtr<void>, selector: RawPtr<void>) -> void = "objc_msgSend"
+        fn objc_bool(receiver: RawPtr<void>, selector: RawPtr<void>) -> bool = "objc_msgSend"
+        fn objc_integer(receiver: RawPtr<void>, selector: RawPtr<void>) -> u64 = "objc_msgSend"
+        fn objc_pointer_object(receiver: RawPtr<void>, selector: RawPtr<void>, value: RawPtr<void>) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_text(receiver: RawPtr<void>, selector: RawPtr<void>, value: RawPtr<u8>) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_u64(receiver: RawPtr<void>, selector: RawPtr<void>, value: u64) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_u64_u64(receiver: RawPtr<void>, selector: RawPtr<void>, first: u64, second: u64) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_object_u32(receiver: RawPtr<void>, selector: RawPtr<void>, object: RawPtr<void>, value: u32) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_rate_channels(receiver: RawPtr<void>, selector: RawPtr<void>, rate: f64, channels: u32) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_two_objects(receiver: RawPtr<void>, selector: RawPtr<void>, first: RawPtr<void>, second: RawPtr<void>) -> RawPtr<void> = "objc_msgSend"
+        fn objc_pointer_three_objects(receiver: RawPtr<void>, selector: RawPtr<void>, first: RawPtr<void>, second: RawPtr<void>, third: RawPtr<void>) -> RawPtr<void> = "objc_msgSend"
+        fn objc_unit_object(receiver: RawPtr<void>, selector: RawPtr<void>, value: RawPtr<void>) -> void = "objc_msgSend"
+        fn objc_unit_two_objects(receiver: RawPtr<void>, selector: RawPtr<void>, first: RawPtr<void>, second: RawPtr<void>) -> void = "objc_msgSend"
+        fn objc_unit_three_objects(receiver: RawPtr<void>, selector: RawPtr<void>, first: RawPtr<void>, second: RawPtr<void>, third: RawPtr<void>) -> void = "objc_msgSend"
+        fn objc_unit_bool(receiver: RawPtr<void>, selector: RawPtr<void>, value: bool) -> void = "objc_msgSend"
+        fn objc_unit_u32(receiver: RawPtr<void>, selector: RawPtr<void>, value: u32) -> void = "objc_msgSend"
+        fn objc_unit_u64(receiver: RawPtr<void>, selector: RawPtr<void>, value: u64) -> void = "objc_msgSend"
+        fn objc_unit_object_u64_u64(receiver: RawPtr<void>, selector: RawPtr<void>, object: RawPtr<void>, offset: u64, index: u64) -> void = "objc_msgSend"
+        fn objc_unit_u64_u64_u64(receiver: RawPtr<void>, selector: RawPtr<void>, first: u64, second: u64, third: u64) -> void = "objc_msgSend"
+        fn objc_bool_object(receiver: RawPtr<void>, selector: RawPtr<void>, value: RawPtr<void>) -> bool = "objc_msgSend"
+        fn objc_bool_u64(receiver: RawPtr<void>, selector: RawPtr<void>, value: u64) -> bool = "objc_msgSend"
+        fn objc_unit_size(receiver: RawPtr<void>, selector: RawPtr<void>, width: f64, height: f64) -> void = "objc_msgSend"
+        fn objc_event(receiver: RawPtr<void>, selector: RawPtr<void>, mask: u64, deadline: RawPtr<void>, mode: RawPtr<void>, dequeue: bool) -> RawPtr<void> = "objc_msgSend"
+        fn raw_metal_system_device() -> RawPtr<void> = "MTLCreateSystemDefaultDevice"
+        fn raw_mach_absolute_time() -> u64 = "mach_absolute_time"
+        fn raw_mach_wait_until(deadline: u64) -> i32 = "mach_wait_until"
+        fn mach_timebase_info(data: RawPtr<u8>) -> i32 = "mach_timebase_info"
+    }
+
+    opaque resource ObjectivePool {
+        value: RawPtr<void>
+        drop {
+            unsafe {
+                objc_pool_close(value)
+            }
+        }
+    }
+
+    fn objc_pool_open() -> RawPtr<void> {
+        unsafe {
+            return raw_objc_pool_open()
+        }
+    }
+
+    fn metal_system_device() -> RawPtr<void> {
+        unsafe {
+            return raw_metal_system_device()
+        }
+    }
+
+    fn mach_absolute_time() -> u64 {
+        unsafe {
+            return raw_mach_absolute_time()
+        }
+    }
+
+    fn mach_wait_until(deadline: u64) -> i32 {
+        unsafe {
+            return raw_mach_wait_until(deadline)
+        }
+    }
+
+    fn named_class(name: take Text) -> RawPtr<void> {
+        var valid = false
+        loan read name as bytes {
+            valid = std::cstr::is_terminated(bytes)
+        }
+        if valid == false {
+            return null_object()
+        }
+        unsafe {
+            return objc_class(name.as_raw())
+        }
+    }
+
+    fn named_selector(name: take Text) -> RawPtr<void> {
+        var valid = false
+        loan read name as bytes {
+            valid = std::cstr::is_terminated(bytes)
+        }
+        if valid == false {
+            return null_object()
+        }
+        unsafe {
+            return objc_selector(name.as_raw())
+        }
+    }
+
+    fn objective_string(value: take Text) -> RawPtr<void> {
+        var valid = false
+        loan read value as bytes {
+            valid = std::cstr::is_terminated(bytes)
+        }
+        if valid == false {
+            return null_object()
+        }
+        let class = named_class("NSString\0")
+        unsafe {
+            return objc_pointer_text(class, named_selector("stringWithUTF8String:\0"), value.as_raw())
+        }
+    }
+
+    unsafe fn release_object(value: RawPtr<void>) -> void {
+        unsafe {
+            objc_unit(value, named_selector("release\0"))
+        }
+        return
+    }
+
+    fn open_objective_pool() -> ObjectivePool {
+        unsafe {
+            return ObjectivePool {
+                value: objc_pool_open()
+            }
+        }
+    }
+
+    fn null_object() -> RawPtr<void> {
+        unsafe {
+            return RawPtr<void>.from_address(0)
+        }
+    }
+}

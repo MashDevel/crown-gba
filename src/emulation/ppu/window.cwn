@@ -1,0 +1,89 @@
+module video {
+    struct WindowFill {
+        bounds: [usize; 2]
+        control: u8
+        source: u8
+    }
+
+    fn prepare_windows(emulator: write emulator::State, line: usize, control: u16) -> void {
+        let enabled = control >> 13 & 7
+        var outside: u8 = 63
+        if enabled != 0 {
+            outside = u8.from(memory::io_read16(emulator.memory, video::WINDOW_OUTSIDE) & 255)
+        }
+        let fill = WindowFill {
+            bounds: [0, WIDTH], control: outside, source: 0
+        }
+        fill_window(emulator.ppu, fill)
+        if enabled & 2 != 0 {
+            apply_regular_window(emulator, line, 1)
+        }
+        if enabled & 1 != 0 {
+            apply_regular_window(emulator, line, 0)
+        }
+        return
+    }
+
+    fn apply_regular_window(emulator: write emulator::State, line: usize, window: usize) -> void {
+        let vertical = window_bounds(memory::io_read16(emulator.memory, video::WINDOW_0_V + window * 2), HEIGHT)
+        if line < vertical[0] || line >= vertical[1] {
+            return
+        }
+        let horizontal = window_bounds(memory::io_read16(emulator.memory, video::WINDOW_0_H + window * 2), WIDTH)
+        let inside = memory::io_read16(emulator.memory, video::WINDOW_INSIDE)
+        let control = if window == 0 {
+            u8.from(inside & 255)
+        } else {
+            u8.from(inside >> 8)
+        }
+        let fill = WindowFill {
+            bounds: horizontal, control: control, source: 1
+        }
+        fill_window(emulator.ppu, fill)
+        return
+    }
+
+    fn fill_window(ppu: write State, fill: WindowFill) -> void {
+        let layers = fill.control & 31
+        let effects = fill.control >> 5 & 1
+        for x in fill.bounds[0]..fill.bounds[1] {
+            ppu.window_layers[x] = layers
+            ppu.window_effects[x] = effects
+            ppu.window_source[x] = fill.source
+        }
+        return
+    }
+
+    fn set_window_control(ppu: write State, x: usize, control: u8) -> void {
+        ppu.window_layers[x] = control & 31
+        ppu.window_effects[x] = 0
+        if control & 32 != 0 {
+            ppu.window_effects[x] = 1
+        }
+        return
+    }
+
+    fn apply_object_window(emulator: write emulator::State, x: usize) -> void {
+        if emulator.ppu.window_source[x] != 0 {
+            return
+        }
+        let control = u8.from(memory::io_read16(emulator.memory, video::WINDOW_OUTSIDE) >> 8)
+        set_window_control(emulator.ppu, x, control)
+        return
+    }
+
+    fn window_bounds(range: u16, limit: usize) -> [usize; 2] {
+        var start = usize.from(range >> 8 & 255)
+        var finish = usize.from(range & 255)
+        if start > limit {
+            start = limit
+        }
+        if finish > limit {
+            finish = limit
+        }
+        if start > finish {
+            finish = limit
+        }
+        return [start, finish]
+    }
+}

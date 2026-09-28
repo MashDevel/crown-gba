@@ -1,0 +1,89 @@
+module app {
+    copy struct JoystickState {
+        buttons: u32
+        axes: [i32; 8]
+    }
+
+    fn joystick_state() -> JoystickState {
+        return JoystickState {
+            buttons: 0, axes: [0, 0, 0, 0, 0, 0, 0, 0]
+        }
+    }
+
+    fn joystick_event(state: write JoystickState, bytes: Vec<u8>) -> bool {
+        if bytes.length() != 8 {
+            return false
+        }
+        let kind = bytes[6] & 127
+        let index = usize.from(bytes[7])
+        let value = i32.from(bytes[4]) |(i32.from(bytes[5]) << 8)
+        let signed = if value >= 32768 {
+            value - 65536
+        } else {
+            value
+        }
+        if kind == 1 && index < 16 {
+            let bit = u32.from(1) << u32.from(index)
+            if value != 0 {
+                state.buttons = state.buttons | bit
+            }
+            else {
+                state.buttons = state.buttons & ~bit
+            }
+        }
+        if kind == 2 && index < 8 {
+            state.axes[index] = signed
+        }
+        return true
+    }
+
+    fn joystick_keys(state: JoystickState) -> u32 {
+        let buttons = state.buttons
+        var keys = (buttons & 3) |((buttons >> 4) & 12) |((buttons & 32) << 3) |((buttons & 16) << 5)
+        if state.axes[0] >= 16384 || state.axes[6] >= 16384 {
+            keys = keys | 16
+        }
+        if state.axes[0] <= -16384 || state.axes[6] <= -16384 {
+            keys = keys | 32
+        }
+        if state.axes[1] <= -16384 || state.axes[7] <= -16384 {
+            keys = keys | 64
+        }
+        if state.axes[1] >= 16384 || state.axes[7] >= 16384 {
+            keys = keys | 128
+        }
+        return keys
+    }
+
+    fn linux_key_mask(key: u64) -> u32 {
+        let normalized = if key >= 65 && key <= 90 {
+            key + 32
+        } else {
+            key
+        }
+        let keys: [u64; 10] = [122, 120, 65288, 65293, 65363, 65361, 65362, 65364, 115, 97]
+        for index in 0..10 {
+            if keys[index] == normalized {
+                return u32.from(1) << u32.from(index)
+            }
+        }
+        return 0
+    }
+
+    fn image_dimensions(width: u32, height: u32) -> [u32; 2] {
+        let horizontal = width / u32.from(video::WIDTH)
+        let vertical = height / u32.from(video::HEIGHT)
+        var scale = if horizontal < vertical {
+            horizontal
+        } else {
+            vertical
+        }
+        if scale == 0 {
+            scale = 1
+        }
+        if scale > 16 {
+            scale = 16
+        }
+        return [u32.from(video::WIDTH) * scale, u32.from(video::HEIGHT) * scale]
+    }
+}

@@ -1,0 +1,109 @@
+module bios {
+    struct AffineMatrix {
+        pa: i32
+        pb: i32
+        pc: i32
+        pd: i32
+    }
+
+    fn bg_affine_set(emulator: write emulator::State) -> void {
+        var source = emulator.cpu.registers[0]
+        var destination = emulator.cpu.registers[1]
+        var count = emulator.cpu.registers[2]
+        while count != 0 {
+            transform_background(emulator, source, destination)
+            source = source.wrapping_add(20)
+            destination = destination.wrapping_add(16)
+            count = count - 1
+        }
+        return
+    }
+
+    fn transform_background(
+        emulator: write emulator::State,
+        source: u32,
+        destination: u32
+    ) -> void {
+        let origin_x = i32.from_bits(memory::read32(emulator.memory, emulator.cartridge, source))
+        let origin_y = i32.from_bits(memory::read32(
+                emulator.memory, emulator.cartridge, source.wrapping_add(4)
+            ))
+        let center_x = video::signed16(memory::read16(
+                emulator.memory, emulator.cartridge, source.wrapping_add(8)
+            ))
+        let center_y = video::signed16(memory::read16(
+                emulator.memory, emulator.cartridge, source.wrapping_add(10)
+            ))
+        let matrix = read_affine_matrix(emulator, source.wrapping_add(12))
+        let start_x = origin_x - matrix.pa * center_x - matrix.pb * center_y
+        let start_y = origin_y - matrix.pc * center_x - matrix.pd * center_y
+        write_affine_matrix(emulator.memory, destination, matrix)
+        memory::write32(emulator.memory, destination.wrapping_add(8), u32.from_bits(start_x))
+        memory::write32(emulator.memory, destination.wrapping_add(12), u32.from_bits(start_y))
+        return
+    }
+
+    fn obj_affine_set(emulator: write emulator::State) -> void {
+        var source = emulator.cpu.registers[0]
+        var destination = emulator.cpu.registers[1]
+        var count = emulator.cpu.registers[2]
+        var stride = emulator.cpu.registers[3]
+        if stride == 0 {
+            stride = 1
+        }
+        while count != 0 {
+            let matrix = read_affine_matrix(emulator, source)
+            memory::write16(emulator.memory, destination, matrix_value(matrix, 0))
+            memory::write16(emulator.memory, destination.wrapping_add(stride), matrix_value(matrix, 1))
+            memory::write16(emulator.memory, destination.wrapping_add(stride * 2), matrix_value(matrix, 2))
+            memory::write16(emulator.memory, destination.wrapping_add(stride * 3), matrix_value(matrix, 3))
+            source = source.wrapping_add(8)
+            destination = destination.wrapping_add(8)
+            count = count - 1
+        }
+        return
+    }
+
+    fn read_affine_matrix(emulator: write emulator::State, source: u32) -> AffineMatrix {
+        let scale_x = video::signed16(memory::read16(emulator.memory, emulator.cartridge, source))
+        let scale_y = video::signed16(memory::read16(
+                emulator.memory, emulator.cartridge, source.wrapping_add(2)
+            ))
+        let angle = memory::read16(emulator.memory, emulator.cartridge, source.wrapping_add(4)) & 65280
+        let radians = f64.from(angle) * RADIANS_PER_TURN / ANGLE_UNITS_PER_TURN
+        let sine = i32.from(host::native_round(host::native_sin(radians) * 256.0))
+        let cosine = i32.from(host::native_round(host::native_cos(radians) * 256.0))
+        return AffineMatrix {
+            pa: cosine * scale_x >> 8
+            pb: -sine * scale_x >> 8
+            pc: sine * scale_y >> 8
+            pd: cosine * scale_y >> 8
+        }
+    }
+
+    fn write_affine_matrix(
+        memory: write memory::State,
+        destination: u32,
+        matrix: AffineMatrix
+    ) -> void {
+        memory::write16(memory, destination, matrix_value(matrix, 0))
+        memory::write16(memory, destination.wrapping_add(2), matrix_value(matrix, 1))
+        memory::write16(memory, destination.wrapping_add(4), matrix_value(matrix, 2))
+        memory::write16(memory, destination.wrapping_add(6), matrix_value(matrix, 3))
+        return
+    }
+
+    fn matrix_value(matrix: AffineMatrix, index: usize) -> u16 {
+        var value = matrix.pa
+        if index == 1 {
+            value = matrix.pb
+        }
+        if index == 2 {
+            value = matrix.pc
+        }
+        if index == 3 {
+            value = matrix.pd
+        }
+        return u16.from(u32.from_bits(value) & 65535)
+    }
+}

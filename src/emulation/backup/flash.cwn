@@ -1,0 +1,177 @@
+module backup {
+    const FLASH_ADDRESS_MASK: u32 = 0xffff
+    const FLASH_SECTOR_SIZE: usize = 4 * 1024
+    const FLASH_UNLOCK_ADDRESS: usize = 0x5555
+    const FLASH_UNLOCK_SECOND_ADDRESS: usize = 0x2aaa
+    const FLASH_UNLOCK_VALUE: u8 = 0xaa
+    const FLASH_UNLOCK_SECOND_VALUE: u8 = 0x55
+    const FLASH_RESET: u8 = 0xf0
+    const FLASH_IDENTIFY: u8 = 0x90
+    const FLASH_PROGRAM: u8 = 0xa0
+    const FLASH_SELECT_BANK: u8 = 0xb0
+    const FLASH_ERASE: u8 = 0x80
+    const FLASH_ERASE_CHIP: u8 = 0x10
+    const FLASH_ERASE_SECTOR: u8 = 0x30
+    const FLASH_MANUFACTURER_ID: u8 = 0x62
+    const FLASH_DEVICE_ID: u8 = 0x13
+    const ERASED_BYTE: u8 = 0xff
+
+    copy struct FlashWrite {
+        offset: usize, value: u8
+    }
+
+    fn read8(memory: memory::State, address: u32) -> u8 {
+        let offset = usize.from(address & FLASH_ADDRESS_MASK)
+        match memory.save_kind {
+            Kind::Absent | Kind::Eeprom => ERASED_BYTE
+            Kind::Flash64 | Kind::Flash128 => flash_read(memory, offset)
+            Kind::Sram => memory.backup[offset % memory.backup.length()]
+        }
+    }
+
+    fn flash_read(memory: memory::State, offset: usize) -> u8 {
+        if memory.flash_id {
+            return flash_identifier(offset)
+        }
+        if memory.save_kind == Kind::Flash128() {
+            return memory.backup[memory.flash_bank * FLASH_BANK_SIZE + offset]
+        }
+        memory.backup[offset % memory.backup.length()]
+    }
+
+    fn flash_identifier(offset: usize) -> u8 {
+        match offset {
+            0 => FLASH_MANUFACTURER_ID
+            1 => FLASH_DEVICE_ID
+            _ => ERASED_BYTE
+        }
+    }
+
+    fn write8(memory: write memory::State, address: u32, value: u8) -> void {
+        let offset = usize.from(address & FLASH_ADDRESS_MASK)
+        match memory.save_kind {
+            Kind::Sram => {
+                memory.backup[offset % SRAM_SIZE] = value
+            }
+            Kind::Flash64 | Kind::Flash128 => {
+                flash_write(memory, offset, value)
+            }
+            _ => {
+            }
+        }
+    }
+
+    fn flash_write(memory: write memory::State, offset: usize, value: u8) -> void {
+        let request = FlashWrite {
+            offset: offset, value: value
+        }
+        if flash_write_payload(memory, request) {
+            return
+        }
+        if value == FLASH_RESET {
+            memory.flash_id = false
+            memory.flash_state = FlashState::Ready()
+            return
+        }
+        flash_advance(memory, request)
+    }
+
+    fn flash_advance(memory: write memory::State, request: FlashWrite) -> void {
+        match memory.flash_state {
+            FlashState::Ready => flash_unlock(memory, request, FlashState::UnlockSecond())
+            FlashState::UnlockSecond => flash_unlock(memory, request, FlashState::Command())
+            FlashState::EraseUnlock => flash_unlock(memory, request, FlashState::EraseUnlockSecond())
+            FlashState::EraseUnlockSecond => flash_unlock(memory, request, FlashState::EraseCommand())
+            FlashState::Command => {
+                memory.flash_state = FlashState::Ready()
+                if request.offset == FLASH_UNLOCK_ADDRESS {
+                    flash_apply_command(memory, request.value)
+                }
+            }
+            FlashState::EraseCommand => {
+                memory.flash_state = FlashState::Ready()
+                flash_erase(memory, request)
+            }
+            _ => {
+            }
+        }
+    }
+
+    fn flash_write_payload(memory: write memory::State, request: FlashWrite) -> bool {
+        match memory.flash_state {
+            FlashState::Program => {
+                memory.backup[memory.flash_bank * FLASH_BANK_SIZE + request.offset] = request.value
+                memory.flash_state = FlashState::Ready()
+                true
+            }
+            FlashState::SelectBank => {
+                if memory.save_kind == Kind::Flash128() && request.offset == 0 {
+                    memory.flash_bank = usize.from(request.value & 1)
+                }
+                memory.flash_state = FlashState::Ready()
+                true
+            }
+            _ => false
+        }
+    }
+
+    fn flash_unlock(memory: write memory::State, request: FlashWrite, next: FlashState) -> void {
+        let first = next == FlashState::UnlockSecond() || next == FlashState::EraseUnlockSecond()
+        memory.flash_state = FlashState::Ready()
+        if flash_unlock_byte(request, first) {
+            memory.flash_state = next
+        }
+    }
+
+    fn flash_unlock_byte(request: FlashWrite, first: bool) -> bool {
+        if first {
+            return request.offset == FLASH_UNLOCK_ADDRESS && request.value == FLASH_UNLOCK_VALUE
+        }
+        request.offset == FLASH_UNLOCK_SECOND_ADDRESS && request.value == FLASH_UNLOCK_SECOND_VALUE
+    }
+
+    fn flash_apply_command(memory: write memory::State, value: u8) -> void {
+        match value {
+            FLASH_IDENTIFY => {
+                memory.flash_id = true
+            }
+            FLASH_PROGRAM => {
+                memory.flash_state = FlashState::Program()
+            }
+            FLASH_SELECT_BANK => {
+                memory.flash_state = FlashState::SelectBank()
+            }
+            FLASH_ERASE => {
+                memory.flash_state = FlashState::EraseUnlock()
+            }
+            _ => {
+            }
+        }
+    }
+
+    fn flash_erase(memory: write memory::State, request: FlashWrite) -> void {
+        if request.value == FLASH_ERASE_CHIP {
+            if request.offset == FLASH_UNLOCK_ADDRESS {
+                clear_vector_to(memory.backup, ERASED_BYTE)
+            }
+            return
+        }
+        if request.value != FLASH_ERASE_SECTOR {
+            return
+        }
+        let start = memory.flash_bank * FLASH_BANK_SIZE + request.offset / FLASH_SECTOR_SIZE * FLASH_SECTOR_SIZE
+        var index = start
+        while index < start + FLASH_SECTOR_SIZE {
+            memory.backup[index] = ERASED_BYTE
+            index = index + 1
+        }
+    }
+
+    fn clear_vector_to(bytes: write Vec<u8>, value: u8) -> void {
+        var index: usize = 0
+        while index < bytes.length() {
+            bytes[index] = value
+            index = index + 1
+        }
+    }
+}

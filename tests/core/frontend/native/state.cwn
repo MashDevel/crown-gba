@@ -1,0 +1,47 @@
+fn test_native_frontend_state() -> u32 {
+    let schedule = test_frame_schedule()
+    if schedule != 0 {
+        return schedule
+    }
+    let state = app::new_native_frontend_state()
+    let shared = Shared.new(Mutex.new(move state))
+    var worker = spawn move {
+        shared.lock write as current {
+            app::update_input(current, 513)
+        }
+    }
+    worker.join()
+    var result: u32 = 0
+    shared.lock write as current {
+        if current.pressed != 513 {
+            result = 373
+        }
+        var empty = Vec<u32>.new()
+        if app::publish(current, empty) {
+            result = 374
+        }
+        if current.sequence != 0 {
+            result = 375
+        }
+        var ppu = video::new()
+        ppu.framebuffer[0] = 1122867
+        if app::publish(current, ppu.framebuffer) == false {
+            result = 376
+        }
+        if current.framebuffer[0] != 1122867 {
+            result = 377
+        }
+        if current.sequence != 1 {
+            result = 378
+        }
+        app::finish(current, 81)
+        app::finish(current, 82)
+        if current.running {
+            result = 379
+        }
+        if current.code != 81 {
+            result = 380
+        }
+    }
+    return result
+}

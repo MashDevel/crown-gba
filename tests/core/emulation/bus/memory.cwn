@@ -1,0 +1,259 @@
+fn test_video_memory_writes(emulator: write emulator::State) -> u32 {
+    memory::write16(emulator.memory, 83886080, 0)
+    memory::write8(emulator.memory, 83886080, 18)
+    if memory::read16(emulator.memory, emulator.cartridge, 83886080) != 4626 {
+        return 113
+    }
+    memory::write8(emulator.memory, 83886081, 52)
+    if memory::read16(emulator.memory, emulator.cartridge, 83886080) != 13364 {
+        return 114
+    }
+    memory::write16(emulator.memory, 100663296, 0)
+    memory::write8(emulator.memory, 100663297, 86)
+    if memory::read16(emulator.memory, emulator.cartridge, 100663296) != 22102 {
+        return 115
+    }
+    memory::write16(emulator.memory, 117440512, 0)
+    memory::write8(emulator.memory, 117440512, 255)
+    if memory::read16(emulator.memory, emulator.cartridge, 117440512) != 0 {
+        return 116
+    }
+    memory::write32(emulator.memory, 117440512, 287454020)
+    if memory::read32(emulator.memory, emulator.cartridge, 117440512) != 287454020 {
+        return 117
+    }
+    memory::write32(emulator.memory, 50364412, 2864434397)
+    if memory::read16(emulator.memory, emulator.cartridge, 50364414) != 43707 {
+        return 404
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 50364412) != 2864434397 {
+        return 405
+    }
+    memory::write16(emulator.memory, 83886080, 0)
+    memory::write16(emulator.memory, 100663296, 0)
+    memory::write32(emulator.memory, 117440512, 0)
+    memory::write32(emulator.memory, 50364412, 0)
+    return 0
+}
+
+fn test_ppu_register_writes(memory: write memory::State) -> u32 {
+    let first = memory.io[0]
+    let last = memory.io[1023]
+    memory.io[0] = 18
+    memory.io[1023] = 52
+    if memory::io_read16(memory, 1023) != 4660 {
+        return 390
+    }
+    memory.io[0] = first
+    memory.io[1023] = last
+    memory::io_store16(memory, 2, 65535)
+    memory::write16(memory, 67108866, 65535)
+    if memory::io_read16(memory, 2) != 1 {
+        return 183
+    }
+    memory::io_store16(memory, 4, 5)
+    memory::write16(memory, 67108868, 65535)
+    if memory::io_read16(memory, 4) != 65533 {
+        return 184
+    }
+    memory::io_store16(memory, 6, 77)
+    memory::write16(memory, 67108870, 0)
+    if memory::io_read16(memory, 6) != 77 {
+        return 185
+    }
+    memory::write16(memory, 67108880, 65535)
+    if memory::io_read16(memory, 16) != 511 {
+        return 186
+    }
+    memory::io_store16(memory, 18, 255)
+    memory::write8(memory, 67108883, 255)
+    if memory::io_read16(memory, 18) != 511 {
+        return 187
+    }
+    return 0
+}
+
+fn test_open_bus(emulator: write emulator::State) -> u32 {
+    emulator.memory.bios[4660] = 90
+    emulator.cpu.registers[15] = 8
+    emulator.last_open_bus = 0
+    if bus::read8(emulator, 4660) != 90 {
+        return 118
+    }
+    emulator.cpu.registers[15] = 134217728
+    emulator.last_open_bus = 287454020
+    if bus::read8(emulator, 4660) != 68 {
+        return 119
+    }
+    emulator.last_open_bus = 287454020
+    if bus::read32(emulator, 4660) != 287454020 {
+        return 120
+    }
+    emulator.last_open_bus = 2864434397
+    if bus::read16(emulator, 16777218) != 43707 {
+        return 121
+    }
+    emulator.cpu = cpu::new()
+    emulator.last_open_bus = 0
+    return 0
+}
+
+fn test_mapped_io_bus_access(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    bus::write16(emulator, 67108960, 65535)
+    if bus::read16(emulator, 67108960) != 127 {
+        return 315
+    }
+    bus::write8(emulator, 67109051, 128)
+    if memory::io_read16(emulator.memory, 186) != 32768 {
+        return 316
+    }
+    emulator.last_open_bus = 287454020
+    if bus::read8(emulator, 251658241) != 51 {
+        return 317
+    }
+    emulator.last_open_bus = 287454020
+    if bus::read16(emulator, 4278190082) != 4386 {
+        return 318
+    }
+    bios::hard_reset(emulator)
+    return 0
+}
+
+fn test_system_register_writes(memory: write memory::State) -> u32 {
+    memory::io_store16(memory, 514, 4098)
+    memory::write32(memory, 67109376, 196607)
+    if memory::io_read16(memory, 512) != 16383 {
+        return 122
+    }
+    if memory::io_read16(memory, 514) != 4096 {
+        return 123
+    }
+    let waits = test_waitstate_register(memory);
+    if waits != 0 {
+        return waits
+    }
+    memory::write16(memory, 67109384, 65535)
+    if memory::io_read16(memory, 520) != 1 {
+        return 125
+    }
+    memory::write8(memory, 67109385, 255)
+    if memory::io_read16(memory, 520) != 1 {
+        return 126
+    }
+    memory::io_store16(memory, 512, 0)
+    memory::io_store16(memory, 514, 0)
+    memory::io_store16(memory, 516, 0)
+    memory::io_store16(memory, 520, 0)
+    return 0
+}
+
+fn test_bus_timing(emulator: write emulator::State) -> u32 {
+    let encoding = test_waitstate_encoding();
+    if encoding != 0 {
+        return encoding
+    }
+    memory::write16(emulator.memory, 67109380, 0)
+    emulator.access_penalty_cycles = 0
+    emulator.gamepak_seq_valid = false
+    emulator.bus_charging = true
+    bus::read16(emulator, 134217728)
+    if emulator.access_penalty_cycles != 4 {
+        return 127
+    }
+    emulator.access_penalty_cycles = 0
+    bus::read16(emulator, 134217730)
+    if emulator.access_penalty_cycles != 2 {
+        return 128
+    }
+    emulator.access_penalty_cycles = 0
+    bus::read16(emulator, 33554432)
+    if emulator.access_penalty_cycles != 2 {
+        return 129
+    }
+    emulator.access_penalty_cycles = 0
+    bus::read16(emulator, 134217732)
+    if emulator.access_penalty_cycles != 4 {
+        return 130
+    }
+    emulator.access_penalty_cycles = 0
+    bus::read8(emulator, 134217728)
+    bus::read8(emulator, 134217729)
+    if emulator.access_penalty_cycles != 8 {
+        return 131
+    }
+    emulator.access_penalty_cycles = 0
+    bus::read32(emulator, 100663296)
+    if emulator.access_penalty_cycles != 1 {
+        return 132
+    }
+    let fetch = test_gamepak_fetch_timing(emulator);
+    if fetch != 0 {
+        return fetch
+    }
+    emulator.access_penalty_cycles = 0
+    emulator.gamepak_seq_valid = false
+    emulator.bus_charging = false
+    return test_iwram_fetches(emulator)
+}
+
+fn test_waitstate_register(memory: write memory::State) -> u32 {
+    memory::write16(memory, 67109380, 65535)
+    if memory::io_read16(memory, 516) != 24575 {
+        return 124
+    }
+    if memory.backup_wait != 8 {
+        return 397
+    }
+    if memory.gamepak_wait_first[0] != 8 {
+        return 398
+    }
+    if memory.gamepak_wait_first[1] != 8 {
+        return 399
+    }
+    if memory.gamepak_wait_first[2] != 8 {
+        return 400
+    }
+    if memory.gamepak_wait_second[0] != 1 {
+        return 401
+    }
+    if memory.gamepak_wait_second[1] != 1 {
+        return 402
+    }
+    if memory.gamepak_wait_second[2] != 1 {
+        return 403
+    }
+    0
+}
+
+fn test_waitstate_encoding() -> u32 {
+    if bus::first_wait(0) != 4 {
+        return 328
+    }
+    if bus::first_wait(1) != 3 {
+        return 329
+    }
+    if bus::first_wait(2) != 2 {
+        return 330
+    }
+    if bus::first_wait(3) != 8 {
+        return 331
+    }
+    0
+}
+
+fn test_gamepak_fetch_timing(emulator: write emulator::State) -> u32 {
+    emulator.access_penalty_cycles = 0
+    emulator.gamepak_seq_valid = false
+    let fetched = bus::fetch16(emulator, 134217728)
+    if fetched != cartridge::read16(emulator.cartridge, 134217728) {
+        return 408
+    }
+    if emulator.access_penalty_cycles != 4 {
+        return 409
+    }
+    if u16.from(emulator.last_open_bus & 65535) != fetched {
+        return 410
+    }
+    0
+}

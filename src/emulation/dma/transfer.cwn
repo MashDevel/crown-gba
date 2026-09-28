@@ -1,0 +1,184 @@
+module dma {
+    struct Plan {
+        index: usize
+        source: u32
+        destination: u32
+        count: u32
+        control: u16
+        word: bool
+        source_step: u32
+        destination_step: u32
+    }
+
+    struct Result {
+        source: u32
+        destination: u32
+    }
+
+    fn process_timing(emulator: write emulator::State, timing: u32) -> void {
+        let active = emulator.devices.dma_timing[usize.from(timing)]
+        if active == 0 {
+            return
+        }
+        var index: usize = 0
+        while index < CHANNELS {
+            let bit: u8 = 1 << u8.from(index)
+            if active & bit != 0 {
+                transfer(emulator, index)
+            }
+            index = index + 1
+        }
+        return
+    }
+
+    fn transfer(emulator: write emulator::State, index: usize) -> void {
+        let offset: usize = BASE + index * STRIDE
+        var source = memory::io_read32(emulator.memory, offset)
+        var destination = memory::io_read32(emulator.memory, offset + DESTINATION)
+        if emulator.devices.dma_initialized[index] {
+            source = emulator.devices.dma_source[index]
+            destination = emulator.devices.dma_destination[index]
+        }
+        let raw_count = memory::io_read16(emulator.memory, offset + COUNT)
+        let control = memory::io_read16(emulator.memory, offset + CONTROL)
+        var count = u32.from(raw_count)
+        if control >> TIMING_SHIFT & MODE_MASK == SPECIAL {
+            count = FIFO_TRANSFER_WORDS
+        }
+        if count == 0 {
+            count = SHORT_COUNT_LIMIT
+            if index == 3 {
+                count = LONG_COUNT_LIMIT
+            }
+        }
+        var width: u32 = 2
+        if control & WORD_TRANSFER != 0 {
+            width = 4
+        }
+        var source_mode = control >> SOURCE_SHIFT & MODE_MASK
+        if source_mode == ADDRESS_RELOAD {
+            source_mode = ADDRESS_FIXED
+        }
+        let plan = Plan {
+            index: index
+            source: source
+            destination: destination
+            count: count
+            control: control
+            word: control & WORD_TRANSFER != 0
+            source_step: address_step(source_mode, width)
+            destination_step: address_step(control >> DESTINATION_SHIFT & MODE_MASK, width)
+        }
+        if hblank_blocked(emulator.memory, plan) {
+            let result = Result {
+                source: source, destination: destination
+            }
+            complete(emulator, plan, result)
+            return
+        }
+        execute(emulator, plan)
+        return
+    }
+
+    fn execute(emulator: write emulator::State, plan: Plan) -> void {
+        var source = plan.source
+        var destination = plan.destination
+        var remaining = plan.count
+        var cycles: u32 = 0
+        let previous_charging = emulator.bus_charging
+        emulator.bus_charging = true
+        while remaining != 0 {
+            let addresses = Result {
+                source: source, destination: destination
+            }
+            cycles = cycles.wrapping_add(transfer_unit(emulator, plan, addresses))
+            source = source.wrapping_add(plan.source_step)
+            destination = destination.wrapping_add(plan.destination_step)
+            remaining = remaining - 1
+        }
+        emulator.bus_charging = previous_charging
+        emulator.dma_cycles_pending = emulator.dma_cycles_pending.wrapping_add(cycles)
+        let result = Result {
+            source: source, destination: destination
+        }
+        complete(emulator, plan, result)
+        return
+    }
+
+    fn transfer_unit(
+        emulator: write emulator::State,
+        plan: Plan,
+        addresses: Result
+    ) -> u32 {
+        emulator.access_penalty_cycles = 0
+        var base_cycles: u32 = 1
+        if plan.word {
+            let value = bus::read32(emulator, addresses.source)
+            bus::write32(emulator, addresses.destination, value)
+            base_cycles = 2
+        } else {
+            let value = bus::read16(emulator, addresses.source)
+            bus::write16(emulator, addresses.destination, value)
+        }
+        return base_cycles + emulator.access_penalty_cycles
+    }
+
+    fn hblank_blocked(memory: memory::State, plan: Plan) -> bool {
+        if plan.control >> TIMING_SHIFT & MODE_MASK != u16.from(HBLANK) {
+            return false
+        }
+        if memory::io_read16(memory, video::CONTROL) & video::HBLANK_OBJECT_ACCESS != 0 {
+            return false
+        }
+        if plan.destination >> memory::REGION_SHIFT == memory::region::OAM {
+            return true
+        }
+        if plan.destination >> memory::REGION_SHIFT == memory::region::VRAM {
+            return memory::vram_index(plan.destination) >= video::OBJECT_VRAM
+        }
+        return false
+    }
+
+    fn address_step(mode: u16, width: u32) -> u32 {
+        if mode == ADDRESS_INCREMENT {
+            return width
+        }
+        let zero: u32 = 0
+        if mode == ADDRESS_DECREMENT {
+            return zero.wrapping_sub(width)
+        }
+        if mode == ADDRESS_RELOAD {
+            return width
+        }
+        return 0
+    }
+
+    fn complete(emulator: write emulator::State, plan: Plan, result: Result) -> void {
+        let offset: usize = BASE + plan.index * STRIDE
+        if plan.control & IRQ_ENABLE != 0 {
+            devices::request_interrupt(emulator.memory, IRQ_FIRST + plan.index)
+        }
+        let timing = plan.control >> TIMING_SHIFT & MODE_MASK
+        if timing == 0 {
+            emulator.devices.dma_initialized[plan.index] = false
+            let control = plan.control & ~ENABLE
+            memory::io_store16(emulator.memory, offset + CONTROL, control)
+            refresh_timing(emulator.devices, plan.index, control)
+            return
+        }
+        if plan.control & REPEAT == 0 {
+            emulator.devices.dma_initialized[plan.index] = false
+            let control = plan.control & ~ENABLE
+            memory::io_store16(emulator.memory, offset + CONTROL, control)
+            refresh_timing(emulator.devices, plan.index, control)
+        } else {
+            emulator.devices.dma_source[plan.index] = result.source
+            emulator.devices.dma_destination[plan.index] = result.destination
+            if plan.control >> DESTINATION_SHIFT & MODE_MASK == ADDRESS_RELOAD {
+                emulator.devices.dma_destination[plan.index] = plan.destination
+            }
+            emulator.devices.dma_initialized[plan.index] = true
+        }
+        return
+    }
+}

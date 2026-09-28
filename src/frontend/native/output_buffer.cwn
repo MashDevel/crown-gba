@@ -1,0 +1,14 @@
+module app {
+    fn audio_target_frames(quantum: usize) -> usize {
+        let frames: usize = if quantum == 0 {
+            1024
+        } else {
+            if quantum > 4096 {
+                4096
+            } else {
+                quantum
+            }
+        }
+        return frames + usize.from(audio_frames_for_millis(OUTPUT_RATE, 40))
+    }
+}

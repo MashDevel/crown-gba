@@ -1,0 +1,65 @@
+module cpu {
+    module thumb {
+        module encoding {
+            const ADD_SUB_MASK: u32 = 0x0000f800
+            const ADD_SUB: u32 = 0x00001800
+            const SHIFT_MASK: u32 = 0x0000e000
+            const SHIFT: u32 = 0x00000000
+            const ALU_MASK: u32 = 0x0000fc00
+            const ALU: u32 = 0x00004000
+            const HIGH_REGISTER_MASK: u32 = 0x0000fc00
+            const HIGH_REGISTER: u32 = 0x00004400
+            const LOAD_PC_MASK: u32 = 0x0000f800
+            const LOAD_PC: u32 = 0x00004800
+            const TRANSFER_REGISTER_MASK: u32 = 0x0000f200
+            const TRANSFER_REGISTER: u32 = 0x00005000
+            const TRANSFER_SIGNED: u32 = 0x00005200
+            const TRANSFER_HALFWORD_MASK: u32 = 0x0000f000
+            const TRANSFER_HALFWORD: u32 = 0x00008000
+            const TRANSFER_SP_MASK: u32 = 0x0000f000
+            const TRANSFER_SP: u32 = 0x00009000
+            const ADJUST_SP_MASK: u32 = 0x0000ff00
+            const ADJUST_SP: u32 = 0x0000b000
+            const ADD_SP_PC_MASK: u32 = 0x0000f000
+            const ADD_SP_PC: u32 = 0x0000a000
+            const PUSH_POP_MASK: u32 = 0x0000f600
+            const PUSH_POP: u32 = 0x0000b400
+            const SWI_MASK: u32 = 0x0000ff00
+            const SWI: u32 = 0x0000df00
+            const MULTIPLE_MASK: u32 = 0x0000f000
+            const MULTIPLE: u32 = 0x0000c000
+            const CONDITIONAL_BRANCH_MASK: u32 = 0x0000f000
+            const CONDITIONAL_BRANCH: u32 = 0x0000d000
+            const BRANCH_MASK: u32 = 0x0000f800
+            const LINK_PREFIX: u32 = 0x0000f000
+            const LINK_SUFFIX: u32 = 0x0000f800
+            const BRANCH: u32 = 0x0000e000
+            const LOW_REGISTER_MASK: u32 = 7
+            const REGISTER_MASK: u32 = 15
+            const SOURCE_SHIFT: u32 = 3
+            const ALU_SHIFT: u32 = 6
+            const OPERATION_MASK: u32 = 15
+            const SMALL_IMMEDIATE: u32 = 10
+            const SUBTRACT: u32 = 9
+        }
+
+        module operation {
+            const AND: u32 = 0
+            const XOR: u32 = 1
+            const SHIFT_LEFT: u32 = 2
+            const SHIFT_RIGHT: u32 = 3
+            const SHIFT_SIGNED: u32 = 4
+            const ADD_CARRY: u32 = 5
+            const SUBTRACT_CARRY: u32 = 6
+            const ROTATE_RIGHT: u32 = 7
+            const TEST: u32 = 8
+            const NEGATE: u32 = 9
+            const COMPARE: u32 = 10
+            const COMPARE_NEGATIVE: u32 = 11
+            const OR: u32 = 12
+            const MULTIPLY: u32 = 13
+            const BIT_CLEAR: u32 = 14
+            const NOT: u32 = 15
+        }
+    }
+}

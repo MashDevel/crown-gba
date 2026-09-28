@@ -1,0 +1,268 @@
+module audio {
+    const PULSE1_SWEEP: usize = 0x60
+    const PULSE1_ENVELOPE: usize = 0x62
+    const PULSE1_FREQUENCY: usize = 0x64
+    const PULSE2_ENVELOPE: usize = 0x68
+    const PULSE2_FREQUENCY: usize = 0x6c
+    const WAVE_CONTROL: usize = 0x70
+    const WAVE_LENGTH: usize = 0x72
+    const WAVE_FREQUENCY: usize = 0x74
+    const NOISE_ENVELOPE: usize = 0x78
+    const NOISE_CONTROL: usize = 0x7c
+    const MIXER_CONTROL: usize = 0x80
+    const DIRECT_CONTROL: usize = 0x82
+    const MASTER_CONTROL: usize = 0x84
+    const BIAS_CONTROL: usize = 0x88
+    const WAVE_RAM: usize = 0x90
+    const FIFO_A: usize = 0xa0
+    const FIFO_B: usize = 0xa4
+    const REGISTER_BASE: usize = PULSE1_SWEEP
+    const REGISTER_END: usize = FIFO_B + 4
+    const REGISTER_SIZE: usize = REGISTER_END - REGISTER_BASE
+
+    const SWEEP_WRITE_MASK: u16 = 0x007f
+    const FREQUENCY_MASK: u16 = 0x07ff
+    const FREQUENCY_RANGE: u16 = FREQUENCY_MASK + 1
+    const LENGTH_ENABLE: u16 = 1 << 14
+    const TRIGGER: u16 = 1 << 15
+    const FREQUENCY_WRITE_MASK: u16 = FREQUENCY_MASK | LENGTH_ENABLE | TRIGGER
+    const WAVE_CONTROL_MASK: u16 = 0x00e0
+    const WAVE_LENGTH_MASK: u16 = 0xe0ff
+    const NOISE_ENVELOPE_MASK: u16 = 0xff3f
+    const NOISE_CONTROL_MASK: u16 = 0xc0ff
+    const MIXER_CONTROL_MASK: u16 = 0xff77
+    const DIRECT_CONTROL_MASK: u16 = 0x770f
+    const BIAS_CONTROL_MASK: u16 = 0xc3ff
+    const FIFO_A_RESET: u16 = 1 << 11
+    const FIFO_B_RESET: u16 = 1 << 15
+    const FIFO_A_FULL_VOLUME: u16 = 1 << 2
+    const FIFO_B_FULL_VOLUME: u16 = 1 << 3
+    const FIFO_A_RIGHT: u16 = 1 << 8
+    const FIFO_A_LEFT: u16 = 1 << 9
+    const FIFO_B_RIGHT: u16 = 1 << 12
+    const FIFO_B_LEFT: u16 = 1 << 13
+    const MASTER_ENABLE: u16 = 1 << 7
+    const ENVELOPE_INCREASE: u16 = 1 << 11
+    const ENVELOPE_DAC_MASK: u16 = 0xf800
+    const ENVELOPE_VOLUME_SHIFT: u16 = 12
+    const ENVELOPE_PERIOD_SHIFT: u16 = 8
+
+    copy struct RegisterWrite {
+        width: u8, offset: u16, value: u32
+    }
+
+    fn process_events(emulator: write emulator::State) -> void {
+        if emulator.memory.audio_events.length() == 0 {
+            return
+        }
+        var index: usize = 0
+        while index < emulator.memory.audio_events.length() {
+            let event = emulator.memory.audio_events[index]
+            apply_event(emulator.audio, event)
+            index = index + 1
+        }
+        while emulator.memory.audio_events.length() != 0 {
+            emulator.memory.audio_events.pop()
+        }
+        update_status(emulator)
+        return
+    }
+
+    fn apply_event(audio: write State, event: RegisterWrite) -> void {
+        sync_channels(audio)
+        let offset = usize.from(event.offset)
+        match event.width {
+            1 => write8(audio, offset, u8.from(event.value))
+            2 => write16(audio, offset, u16.from(event.value))
+            _ => write32(audio, offset, event.value)
+        }
+    }
+
+    fn write8(audio: write State, offset: usize, value: u8) -> void {
+        if offset < REGISTER_BASE {
+            return
+        }
+        let index = offset - REGISTER_BASE
+        if index >= REGISTER_SIZE {
+            return
+        }
+        audio.registers[index] = value
+        let aligned = index & 18446744073709551614
+        let word = bytes::join_u16(audio.registers[aligned], audio.registers[aligned + 1])
+        write16(audio, aligned + REGISTER_BASE, word)
+        return
+    }
+
+    fn write32(audio: write State, offset: usize, value: u32) -> void {
+        if offset == audio::FIFO_A {
+            push_fifo_word(audio.fifo_a, value);
+            return
+        }
+        if offset == audio::FIFO_B {
+            push_fifo_word(audio.fifo_b, value);
+            return
+        }
+        write16(audio, offset, u16.from(value & 65535))
+        write16(audio, offset + 2, u16.from(value >> 16))
+        return
+    }
+
+    fn write16(audio: write State, offset: usize, value: u16) -> void {
+        if offset < audio::WAVE_CONTROL {
+            write_pulse_register(audio, offset, value);
+            return
+        }
+        if offset < audio::MIXER_CONTROL {
+            write_wave_noise_register(audio, offset, value);
+            return
+        }
+        if offset < audio::WAVE_RAM {
+            write_mixer_register(audio, offset, value);
+            return
+        }
+        if offset <= FIFO_A - 2 {
+            store16(audio, offset - REGISTER_BASE, value);
+            return
+        }
+        if offset == audio::FIFO_A || offset == audio::FIFO_A + 2 {
+            push_fifo_halfword(audio.fifo_a, value);
+            return
+        }
+        if offset == audio::FIFO_B || offset == audio::FIFO_B + 2 {
+            push_fifo_halfword(audio.fifo_b, value)
+        }
+    }
+
+    fn write_pulse_register(audio: write State, offset: usize, value: u16) -> void {
+        if offset == audio::PULSE1_SWEEP {
+            store16(audio, PULSE1_SWEEP - REGISTER_BASE, value & SWEEP_WRITE_MASK);
+            pulse_set_sweep(audio.pulse1, value);
+            return
+        }
+        if offset == audio::PULSE1_ENVELOPE {
+            store16(audio, PULSE1_ENVELOPE - REGISTER_BASE, value);
+            pulse_set_envelope(audio.pulse1, value);
+            return
+        }
+        if offset == audio::PULSE1_FREQUENCY {
+            store16(audio, PULSE1_FREQUENCY - REGISTER_BASE, value & FREQUENCY_WRITE_MASK);
+            pulse_set_frequency(audio.pulse1, value);
+            return
+        }
+        if offset == audio::PULSE2_ENVELOPE {
+            store16(audio, PULSE2_ENVELOPE - REGISTER_BASE, value);
+            pulse_set_envelope(audio.pulse2, value);
+            return
+        }
+        if offset == audio::PULSE2_FREQUENCY {
+            store16(audio, PULSE2_FREQUENCY - REGISTER_BASE, value & FREQUENCY_WRITE_MASK);
+            pulse_set_frequency(audio.pulse2, value)
+        }
+    }
+
+    fn write_wave_noise_register(audio: write State, offset: usize, value: u16) -> void {
+        if offset == audio::WAVE_CONTROL {
+            store16(audio, WAVE_CONTROL - REGISTER_BASE, value & WAVE_CONTROL_MASK);
+            wave_set_control(audio.wave, value);
+            return
+        }
+        if offset == audio::WAVE_LENGTH {
+            store16(audio, WAVE_LENGTH - REGISTER_BASE, value & WAVE_LENGTH_MASK);
+            wave_set_length(audio.wave, value);
+            return
+        }
+        if offset == audio::WAVE_FREQUENCY {
+            store16(audio, WAVE_FREQUENCY - REGISTER_BASE, value & FREQUENCY_WRITE_MASK);
+            wave_set_frequency(audio.wave, value);
+            return
+        }
+        if offset == audio::NOISE_ENVELOPE {
+            store16(audio, NOISE_ENVELOPE - REGISTER_BASE, value & NOISE_ENVELOPE_MASK);
+            noise_set_envelope(audio.noise, value);
+            return
+        }
+        if offset == audio::NOISE_CONTROL {
+            store16(audio, NOISE_CONTROL - REGISTER_BASE, value & NOISE_CONTROL_MASK);
+            noise_set_control(audio.noise, value)
+        }
+    }
+
+    fn write_mixer_register(audio: write State, offset: usize, value: u16) -> void {
+        if offset == audio::MIXER_CONTROL {
+            store16(audio, MIXER_CONTROL - REGISTER_BASE, value & MIXER_CONTROL_MASK);
+            return
+        }
+        if offset == audio::DIRECT_CONTROL {
+            write_control_h(audio, value);
+            return
+        }
+        if offset == audio::MASTER_CONTROL {
+            write_master(audio, value);
+            return
+        }
+        if offset == audio::BIAS_CONTROL {
+            store16(audio, BIAS_CONTROL - REGISTER_BASE, value & BIAS_CONTROL_MASK)
+        }
+    }
+
+    fn write_control_h(audio: write State, value: u16) -> void {
+        store16(audio, DIRECT_CONTROL - REGISTER_BASE, value & DIRECT_CONTROL_MASK)
+        if value & FIFO_A_RESET != 0 {
+            fifo_reset_queue(audio.fifo_a)
+        }
+        if value & FIFO_B_RESET != 0 {
+            fifo_reset_queue(audio.fifo_b)
+        }
+        return
+    }
+
+    fn write_master(audio: write State, value: u16) -> void {
+        store16(audio, MASTER_CONTROL - REGISTER_BASE, value & MASTER_ENABLE)
+        audio.master_enabled = value & MASTER_ENABLE != 0
+        if value & MASTER_ENABLE == 0 {
+            disable_all(audio)
+        }
+        return
+    }
+
+    fn disable_all(audio: write State) -> void {
+        fifo_reset(audio.fifo_a)
+        fifo_reset(audio.fifo_b)
+        audio.pulse1 = new_pulse_channel()
+        audio.pulse2 = new_pulse_channel()
+        audio.wave = new_wave_channel()
+        audio.noise = new_noise_channel()
+        clear_samples(audio)
+        audio.sample_clock = 0
+        audio.channel_clock = 0
+        audio.frame_clock = 0
+        audio.frame_step = 0
+        return
+    }
+
+    fn update_status(emulator: write emulator::State) -> void {
+        var status: u8 = 0
+        if emulator.audio.master_enabled {
+            status = u8.from(MASTER_ENABLE)
+        }
+        if emulator.audio.pulse1.control.enabled {
+            status = status | 1
+        }
+        if emulator.audio.pulse2.control.enabled {
+            status = status | 2
+        }
+        if emulator.audio.wave.control.enabled {
+            status = status | 4
+        }
+        if emulator.audio.noise.control.enabled {
+            status = status | 8
+        }
+        emulator.audio.registers[MASTER_CONTROL - REGISTER_BASE] = status
+        var index: usize = 0
+        while index < emulator.audio.registers.length() {
+            emulator.memory.io[audio::PULSE1_SWEEP + index] = emulator.audio.registers[index]
+            index = index + 1
+        }
+        return
+    }
+}

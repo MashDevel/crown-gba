@@ -1,0 +1,52 @@
+module app {
+    struct State {
+        running: bool
+        pressed: u16
+        code: u32
+        sequence: u64
+        framebuffer: Vec<u32>
+        video: FrameSchedule
+    }
+
+    fn new_native_frontend_state() -> State {
+        return State {
+            running: true
+            pressed: 0
+            code: 0
+            sequence: 0
+            framebuffer: memory::zero_u32(38400)
+            video: new_frame_schedule()
+        }
+    }
+
+    fn update_input(state: write State, pressed: u16) -> void {
+        state.pressed = pressed
+        return
+    }
+
+    fn publish(
+        state: write State,
+        pixels: Vec<u32>
+    ) -> bool {
+        if pixels.length() != state.framebuffer.length() {
+            return false
+        }
+        var index: usize = 0
+        while index < pixels.length() {
+            state.framebuffer[index] = pixels[index]
+            index = index + 1
+        }
+        state.sequence = state.sequence.wrapping_add(1)
+        return true
+    }
+
+    fn finish(state: write State, code: u32) -> void {
+        if code != 0 {
+            if state.code == 0 {
+                state.code = code
+            }
+        }
+        state.running = false
+        return
+    }
+}

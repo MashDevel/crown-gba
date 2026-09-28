@@ -1,0 +1,67 @@
+module platform {
+    fn poll_window(window: write Window) -> u32 {
+        var event = Vec<u64>.new()
+        for index in 0..24 {
+            index;
+            event.push(0)
+        }
+        unsafe {
+            var count: usize = 0
+            while count < 128 && native::x11::pending(window.library, window.display) > 0 {
+                native::x11::next_event(window.library, window.display, RawPtr<u8>.cast(event.as_raw()))
+                handle_event(window, event)
+                count = count + 1
+            }
+            return window.keyboard
+        }
+    }
+
+    fn handle_event(window: write Window, event: Vec<u64>) -> void {
+        unsafe {
+            let kind = u32.from(event[0] & 4294967295)
+            if kind == 2 || kind == 3 {
+                keyboard_event(window, event, kind == 2)
+            }
+            if kind == 10 {
+                window.keyboard = 0
+            }
+            if kind == 33 && event[7] == window.delete_atom {
+                window.running = false
+            }
+            if kind == 17 {
+                window.running = false;
+                window.window = 0
+            }
+            if kind == 22 {
+                resize_event(window, event)
+            }
+        }
+    }
+
+    fn keyboard_event(window: write Window, event: Vec<u64>, pressed: bool) -> void {
+        unsafe {
+            let key = native::x11::lookup_key(window.library, RawPtr<u8>.cast(event.as_raw()), 0)
+            if key == 65307 && pressed {
+                window.running = false
+            }
+            let mask = app::linux_key_mask(key)
+            if pressed {
+                window.keyboard = window.keyboard | mask
+            }
+            else {
+                window.keyboard = window.keyboard & ~mask
+            }
+        }
+    }
+
+    fn resize_event(window: write Window, event: Vec<u64>) -> void {
+        let width = u32.from(event[7] & 4294967295)
+        let height = u32.from(event[7] >> 32)
+        unsafe {
+            if width >= u32.from(video::WIDTH) && height >= u32.from(video::HEIGHT) && width <= 4096 && height <= 4096 {
+                window.width = width
+                window.height = height
+            }
+        }
+    }
+}

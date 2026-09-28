@@ -1,0 +1,216 @@
+module timers {
+    const BASE: usize = 0x100
+    const COUNT: usize = 4
+    const STRIDE: usize = 4
+    const CONTROL_OFFSET: usize = 2
+    const END: usize = BASE + COUNT * STRIDE
+    const ENABLE: u16 = 1 << 7
+    const IRQ_ENABLE: u16 = 1 << 6
+    const CASCADE: u16 = 1 << 2
+    const PRESCALER_MASK: u16 = 3
+    const CONTROL_MASK: u16 = ENABLE | IRQ_ENABLE | CASCADE | PRESCALER_MASK
+    const COUNTER_RANGE: u32 = 1 << 16
+    const NO_EVENT: u64 = 0xffff_ffff_ffff_ffff
+
+    fn timer_write_register(memory: write memory::State, address: u32, value: u16) -> void {
+        let register = usize.from((address - memory::io_address(timers::BASE)) / 2)
+        let timer = register / 2
+        if register % 2 == 0 {
+            memory.timer_reload[timer] = value
+            if memory.timer_control[timer] & ENABLE == 0 {
+                memory.timer_counter[timer] = value
+            }
+            memory::io_store16(memory, timers::BASE + timer * STRIDE, memory.timer_counter[timer])
+            recompute_next_event(memory)
+            return
+        }
+        let was_enabled = memory.timer_control[timer] & ENABLE != 0
+        memory.timer_control[timer] = value & CONTROL_MASK
+        let shift = timer_shift(memory.timer_control[timer])
+        memory.timer_shifts[timer] = shift
+        memory.timer_masks[timer] = timer_divisor_mask(shift)
+        memory::io_store16(memory, timers::BASE + timers::CONTROL_OFFSET + timer * STRIDE, memory.timer_control[timer])
+        if was_enabled == false {
+            if memory.timer_control[timer] & ENABLE != 0 {
+                memory.timer_counter[timer] = memory.timer_reload[timer]
+                memory.timer_cycles[timer] = 0
+                memory::io_store16(memory, timers::BASE + timer * STRIDE, memory.timer_counter[timer])
+            }
+        }
+        timer_update_active(memory, timer)
+        recompute_next_event(memory)
+        return
+    }
+
+    fn timer_update_active(memory: write memory::State, timer: usize) -> void {
+        let bit: u8 = 1 << u8.from(timer & 255)
+        memory.timer_direct = memory.timer_direct & ~bit
+        memory.timer_cascade = memory.timer_cascade & ~bit
+        let control = memory.timer_control[timer]
+        if control & ENABLE == 0 {
+            return
+        }
+        if control & CASCADE == 0 {
+            memory.timer_direct = memory.timer_direct | bit
+            return
+        }
+        if timer != 0 {
+            memory.timer_cascade = memory.timer_cascade | bit
+        }
+        return
+    }
+
+    fn next_event(memory: memory::State, remaining: u32) -> u64 {
+        let limit = u64.from(remaining) + 1
+        if memory.timer_next_cycles < limit {
+            return memory.timer_next_cycles
+        }
+        return limit
+    }
+
+    fn recompute_next_event(memory: write memory::State) -> void {
+        var next: u64 = NO_EVENT
+        let active = memory.timer_direct
+        if active & 1 != 0 {
+            next = timer_event_candidate(memory, 0, next)
+        }
+        if active & 2 != 0 {
+            next = timer_event_candidate(memory, 1, next)
+        }
+        if active & 4 != 0 {
+            next = timer_event_candidate(memory, 2, next)
+        }
+        if active & 8 != 0 {
+            next = timer_event_candidate(memory, 3, next)
+        }
+        memory.timer_next_cycles = next
+        return
+    }
+
+    fn timer_event_candidate(memory: memory::State, timer: usize, next: u64) -> u64 {
+        let ticks = COUNTER_RANGE - u32.from(memory.timer_counter[timer])
+        let mask = memory.timer_masks[timer]
+        let product = ticks.wrapping_mul(mask.wrapping_add(1))
+        let elapsed = product.wrapping_sub(memory.timer_cycles[timer])
+        let cycles = u64.from(elapsed)
+        if cycles < next {
+            return cycles
+        }
+        return next
+    }
+
+    fn advance_quiet(memory: write memory::State, cycles: u32) -> void {
+        let active = memory.timer_direct
+        if active == 1 {
+            timer_advance_quiet(memory, 0, cycles)
+            memory.timer_next_cycles = memory.timer_next_cycles.wrapping_sub(u64.from(cycles))
+            return
+        }
+        if active & 1 != 0 {
+            timer_advance_quiet(memory, 0, cycles)
+        }
+        if active & 2 != 0 {
+            timer_advance_quiet(memory, 1, cycles)
+        }
+        if active & 4 != 0 {
+            timer_advance_quiet(memory, 2, cycles)
+        }
+        if active & 8 != 0 {
+            timer_advance_quiet(memory, 3, cycles)
+        }
+        if active != 0 {
+            memory.timer_next_cycles = memory.timer_next_cycles.wrapping_sub(u64.from(cycles))
+        }
+        return
+    }
+
+    fn timer_advance_quiet(memory: write memory::State, timer: usize, cycles: u32) -> void {
+        let ticks = timer_ticks(memory, timer, cycles)
+        let current = u32.from(memory.timer_counter[timer])
+        let counter = current.wrapping_add(ticks)
+        memory.timer_counter[timer] = u16.from(counter & 65535)
+        return
+    }
+
+    fn step(memory: write memory::State, cycles: u32) -> [u32; 4] {
+        var results: [u32; 4] = [0, 0, 0, 0]
+        var active = memory.timer_direct
+        var timer: usize = 0
+        while active != 0 {
+            if active & 1 != 0 {
+                let ticks = timer_ticks(memory, timer, cycles)
+                let overflows = timer_advance(memory, timer, ticks)
+                results[timer] = overflows
+                if overflows != 0 {
+                    if memory.timer_control[timer] & IRQ_ENABLE != 0 {
+                        devices::request_interrupt(memory, 3 + timer)
+                    }
+                }
+            }
+            active = active >> 1
+            timer = timer.wrapping_add(1)
+        }
+        active = memory.timer_cascade >> 1
+        timer = 1
+        while active != 0 {
+            if active & 1 != 0 {
+                let overflows = timer_advance(memory, timer, results[timer - 1])
+                results[timer] = overflows
+                if overflows != 0 {
+                    if memory.timer_control[timer] & IRQ_ENABLE != 0 {
+                        devices::request_interrupt(memory, 3 + timer)
+                    }
+                }
+            }
+            active = active >> 1
+            timer = timer.wrapping_add(1)
+        }
+        recompute_next_event(memory)
+        return results
+    }
+
+    fn timer_ticks(memory: write memory::State, timer: usize, cycles: u32) -> u32 {
+        let shift = memory.timer_shifts[timer]
+        let mask = memory.timer_masks[timer]
+        let elapsed = cycles.wrapping_add(memory.timer_cycles[timer])
+        memory.timer_cycles[timer] = elapsed & mask
+        return elapsed >> shift
+    }
+
+    fn timer_divisor_mask(shift: u32) -> u32 {
+        if shift == 0 {
+            return 0
+        }
+        return (1 << shift) - 1
+    }
+
+    fn timer_shift(control: u16) -> u32 {
+        let selection = control & PRESCALER_MASK
+        if selection == 1 {
+            return 6
+        }
+        if selection == 2 {
+            return 8
+        }
+        if selection == 3 {
+            return 10
+        }
+        return 0
+    }
+
+    fn timer_advance(memory: write memory::State, timer: usize, ticks: u32) -> u32 {
+        let counter = u32.from(memory.timer_counter[timer])
+        let until_overflow = COUNTER_RANGE - counter
+        if ticks < until_overflow {
+            memory.timer_counter[timer] = u16.from(counter.wrapping_add(ticks) & 65535)
+            return 0
+        }
+        let reload = u32.from(memory.timer_reload[timer])
+        let remaining = ticks - until_overflow
+        let period = COUNTER_RANGE - reload
+        let quotient = remaining / period
+        let overflows = quotient.wrapping_add(1)
+        memory.timer_counter[timer] = u16.from(reload.wrapping_add(remaining % period) & 65535)
+        return overflows
+    }
+}

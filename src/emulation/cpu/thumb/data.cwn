@@ -1,0 +1,212 @@
+module cpu {
+    module thumb {
+        struct Operands {
+            opcode: u32
+            left: u32
+            right: u32
+        }
+
+        fn add_sub(cpu: write cpu::State, opcode: u32) -> u32 {
+            let source = usize.from(opcode >> 3 & 7)
+            let destination = usize.from(opcode & 7)
+            let left = cpu::read_register(cpu, source)
+            var right = cpu::read_register(cpu, usize.from(opcode >> 6 & 7))
+            if bits::bit_u32(opcode, encoding::SMALL_IMMEDIATE) {
+                right = opcode >> 6 & 7
+            }
+            var outcome = cpu::arm::add_outcome(left, right, true)
+            if bits::bit_u32(opcode, encoding::SUBTRACT) {
+                outcome = cpu::arm::subtract_outcome(left, right, true)
+            }
+            apply_outcome(cpu, destination, outcome)
+            return 1
+        }
+
+        fn shift_immediate(cpu: write cpu::State, opcode: u32) -> u32 {
+            let kind = opcode >> 11 & 3
+            let source = cpu::read_register(cpu, usize.from(opcode >> 3 & 7))
+            let request = cpu::ShiftRequest {
+                value: source
+                kind: kind
+                amount: opcode >> 6 & 31
+                old_carry: cpu::flag(cpu, cpu::CARRY)
+            }
+            let shifted = cpu::immediate_shift(request)
+            let destination = usize.from(opcode & 7)
+            cpu::write_register(cpu, destination, shifted.value)
+            cpu::write_nz(cpu, shifted.value)
+            cpu::set_flag(cpu, cpu::CARRY, shifted.carry)
+            return 1
+        }
+
+        fn immediate(cpu: write cpu::State, opcode: u32) -> u32 {
+            let operation = opcode >> 11 & 3
+            let destination = usize.from(opcode >> 8 & 7)
+            let immediate = opcode & 255
+            if operation == 0 {
+                cpu::write_register(cpu, destination, immediate)
+                cpu::write_nz(cpu, immediate)
+                return 1
+            }
+            let left = cpu::read_register(cpu, destination)
+            if operation == 1 {
+                let outcome = cpu::arm::subtract_outcome(left, immediate, false)
+                apply_outcome(cpu, destination, outcome)
+                return 1
+            }
+            var outcome = cpu::arm::add_outcome(left, immediate, true)
+            if operation == 3 {
+                outcome = cpu::arm::subtract_outcome(left, immediate, true)
+            }
+            apply_outcome(cpu, destination, outcome)
+            return 1
+        }
+
+        fn alu(cpu: write cpu::State, opcode: u32) -> u32 {
+            let operation = opcode >> encoding::ALU_SHIFT & encoding::OPERATION_MASK
+            let destination = usize.from(opcode & 7)
+            let left = cpu::read_register(cpu, destination)
+            let right = cpu::read_register(cpu, usize.from(opcode >> 3 & 7))
+            let operands = Operands {
+                opcode: opcode, left: left, right: right
+            }
+            if operation <= operation::SHIFT_SIGNED {
+                return alu_low(cpu, operands)
+            }
+            if operation <= operation::COMPARE_NEGATIVE {
+                return alu_middle(cpu, operands)
+            }
+            return alu_high(cpu, operands)
+        }
+
+        fn alu_low(cpu: write cpu::State, operands: Operands) -> u32 {
+            let operation = operands.opcode >> encoding::ALU_SHIFT & encoding::OPERATION_MASK
+            let destination = usize.from(operands.opcode & 7)
+            if operation == operation::AND {
+                write_logical(cpu, destination, operands.left & operands.right)
+                return 1
+            }
+            if operation == operation::XOR {
+                write_logical(cpu, destination, operands.left ^ operands.right)
+                return 1
+            }
+            let request = cpu::ShiftRequest {
+                value: operands.left
+                kind: operation - operation::SHIFT_LEFT
+                amount: operands.right & 255
+                old_carry: cpu::flag(cpu, cpu::CARRY)
+            }
+            let shifted = cpu::register_shift(request)
+            cpu::write_register(cpu, destination, shifted.value)
+            cpu::write_nz(cpu, shifted.value)
+            cpu::set_flag(cpu, cpu::CARRY, shifted.carry)
+            return 1
+        }
+
+        fn alu_middle(cpu: write cpu::State, operands: Operands) -> u32 {
+            let operation = operands.opcode >> encoding::ALU_SHIFT & encoding::OPERATION_MASK
+            let destination = usize.from(operands.opcode & 7)
+            if operation == operation::ADD_CARRY {
+                let outcome = cpu::arm::adc_outcome(cpu, operands.left, operands.right)
+                apply_outcome(cpu, destination, outcome)
+                return 1
+            }
+            if operation == operation::SUBTRACT_CARRY {
+                let outcome = cpu::arm::sbc_outcome(cpu, operands.left, operands.right)
+                apply_outcome(cpu, destination, outcome)
+                return 1
+            }
+            if operation == operation::ROTATE_RIGHT {
+                let request = cpu::ShiftRequest {
+                    value: operands.left
+                    kind: cpu::shift_kind::ROTATE_RIGHT
+                    amount: operands.right & 255
+                    old_carry: cpu::flag(cpu, cpu::CARRY)
+                }
+                let shifted = cpu::register_shift(request)
+                cpu::write_register(cpu, destination, shifted.value)
+                cpu::write_nz(cpu, shifted.value)
+                cpu::set_flag(cpu, cpu::CARRY, shifted.carry)
+                return 1
+            }
+            if operation == operation::TEST {
+                cpu::write_nz(cpu, operands.left & operands.right)
+                return 1
+            }
+            if operation == operation::NEGATE {
+                let outcome = cpu::arm::subtract_outcome(0, operands.right, true)
+                apply_outcome(cpu, destination, outcome)
+                return 1
+            }
+            if operation == operation::COMPARE {
+                let outcome = cpu::arm::subtract_outcome(operands.left, operands.right, false)
+                apply_outcome(cpu, destination, outcome)
+                return 1
+            }
+            let outcome = cpu::arm::add_outcome(operands.left, operands.right, false)
+            apply_outcome(cpu, destination, outcome)
+            return 1
+        }
+
+        fn alu_high(cpu: write cpu::State, operands: Operands) -> u32 {
+            let operation = operands.opcode >> encoding::ALU_SHIFT & encoding::OPERATION_MASK
+            let destination = usize.from(operands.opcode & 7)
+            if operation == operation::OR {
+                write_logical(cpu, destination, operands.left | operands.right)
+                return 1
+            }
+            if operation == operation::MULTIPLY {
+                write_logical(cpu, destination, operands.left.wrapping_mul(operands.right))
+                return 1
+            }
+            if operation == operation::BIT_CLEAR {
+                write_logical(cpu, destination, operands.left & ~operands.right)
+                return 1
+            }
+            write_logical(cpu, destination, ~operands.right)
+            return 1
+        }
+
+        fn high(cpu: write cpu::State, opcode: u32) -> u32 {
+            let operation = opcode >> 8 & 3
+            let source = usize.from(opcode >> 3 & 15)
+            let destination = usize.from(opcode & 7 | opcode >> 4 & 8)
+            let right = cpu::read_register(cpu, source)
+            if operation == 0 {
+                let left = cpu::read_register(cpu, destination)
+                cpu::write_register(cpu, destination, left.wrapping_add(right))
+                return 1
+            }
+            if operation == 1 {
+                let outcome = cpu::arm::subtract_outcome(cpu::read_register(cpu, destination), right, false)
+                apply_outcome(cpu, destination, outcome)
+                return 1
+            }
+            if operation == 2 {
+                cpu::write_register(cpu, destination, right)
+                return 1
+            }
+            cpu::set_thumb(cpu, right & 1 != 0)
+            cpu::write_register(cpu, cpu::PC, right)
+            return 3
+        }
+
+        fn apply_outcome(cpu: write cpu::State, destination: usize, outcome: cpu::arm::DataOutcome) -> void {
+            if outcome.stores_result {
+                cpu::write_register(cpu, destination, outcome.value)
+            }
+            cpu::write_nz(cpu, outcome.value)
+            cpu::set_flag(cpu, cpu::CARRY, outcome.carry)
+            if outcome.update_overflow {
+                cpu::set_flag(cpu, cpu::OVERFLOW, outcome.overflow)
+            }
+            return
+        }
+
+        fn write_logical(cpu: write cpu::State, destination: usize, value: u32) -> void {
+            cpu::write_register(cpu, destination, value)
+            cpu::write_nz(cpu, value)
+            return
+        }
+    }
+}

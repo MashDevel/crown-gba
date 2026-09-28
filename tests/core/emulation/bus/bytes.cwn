@@ -1,0 +1,22 @@
+fn test_memory_byte_order() -> u32 {
+    var bytes = Vec<u8>.new()
+    for value in 0..5 {
+        bytes.push(u8.from(value + 1))
+    }
+    if memory::vector_read32(bytes, 0) != 0x0403_0201 {
+        return 510
+    }
+    if memory::vector_read32(bytes, 1) != 0x0504_0302 {
+        return 511
+    }
+    if memory::vector_read32(bytes, 2) != 0 {
+        return 512
+    }
+    if memory::vector_read32(bytes, 5) != 0 {
+        return 513
+    }
+    if memory::vector_read32(Vec<u8>.new(), 0) != 0 {
+        return 514
+    }
+    return 0
+}

@@ -1,0 +1,97 @@
+module video {
+    const HBLANK_START: u32 = 1006
+    const CYCLES_PER_LINE: u32 = 1232
+    const LINES_PER_FRAME: u32 = 228
+    const CYCLES_PER_FRAME: u32 = CYCLES_PER_LINE * LINES_PER_FRAME
+    const CLOCK_HZ: u64 = 16_777_216
+    const STATUS: usize = 0x004
+    const VCOUNT: usize = 0x006
+    const VBLANK: u16 = 1 << 0
+    const HBLANK: u16 = 1 << 1
+    const VCOUNTER: u16 = 1 << 2
+    const VBLANK_IRQ: u16 = 1 << 3
+    const HBLANK_IRQ: u16 = 1 << 4
+    const VCOUNTER_IRQ: u16 = 1 << 5
+
+    fn advance_video(emulator: write emulator::State, cycles: u32) -> void {
+        emulator.devices.scanline_cycles = emulator.devices.scanline_cycles + cycles
+        while true {
+            if emulator.devices.in_hblank == false {
+                if emulator.devices.scanline_cycles >= video::HBLANK_START {
+                    enter_hblank(emulator)
+                }
+            }
+            if emulator.devices.scanline_cycles < video::CYCLES_PER_LINE {
+                break
+            }
+            emulator.devices.scanline_cycles = emulator.devices.scanline_cycles - video::CYCLES_PER_LINE
+            leave_hblank(emulator)
+            emulator.devices.vcount = (emulator.devices.vcount + 1) % u16.from(video::LINES_PER_FRAME)
+            let vcount = emulator.devices.vcount
+            memory::io_store16(emulator.memory, video::VCOUNT, vcount)
+            if emulator.devices.vcount == u16.from(video::HEIGHT) {
+                enter_vblank(emulator)
+            }
+            if emulator.devices.vcount == 0 {
+                leave_vblank(emulator)
+            }
+            update_vcounter(emulator)
+        }
+        return
+    }
+
+    fn enter_hblank(emulator: write emulator::State) -> void {
+        emulator.devices.in_hblank = true
+        let status = memory::io_read16(emulator.memory, video::STATUS)
+        memory::io_store16(emulator.memory, video::STATUS, status | video::HBLANK)
+        render_line(emulator)
+        if status & video::HBLANK_IRQ != 0 {
+            devices::request_interrupt(emulator.memory, 1)
+        }
+        dma::process_timing(emulator, 2)
+        return
+    }
+
+    fn leave_hblank(emulator: write emulator::State) -> void {
+        emulator.devices.in_hblank = false
+        let status = memory::io_read16(emulator.memory, video::STATUS)
+        memory::io_store16(emulator.memory, video::STATUS, status & ~video::HBLANK)
+        return
+    }
+
+    fn update_vcounter(emulator: write emulator::State) -> void {
+        var status = memory::io_read16(emulator.memory, video::STATUS)
+        let was_matching = status & video::VCOUNTER != 0
+        let target = status >> 8
+        if emulator.devices.vcount == target {
+            status = status | video::VCOUNTER
+            if was_matching == false {
+                if status & video::VCOUNTER_IRQ != 0 {
+                    devices::request_interrupt(emulator.memory, 2)
+                }
+            }
+        } else {
+            status = status & ~video::VCOUNTER
+        }
+        memory::io_store16(emulator.memory, video::STATUS, status)
+        return
+    }
+
+    fn enter_vblank(emulator: write emulator::State) -> void {
+        let status = memory::io_read16(emulator.memory, video::STATUS)
+        memory::io_store16(emulator.memory, video::STATUS, status | video::VBLANK)
+        if status & video::VBLANK_IRQ != 0 {
+            devices::request_interrupt(emulator.memory, 0)
+        }
+        dma::process_timing(emulator, 1)
+        return
+    }
+
+    fn leave_vblank(emulator: write emulator::State) -> void {
+        let status = memory::io_read16(emulator.memory, video::STATUS)
+        memory::io_store16(emulator.memory, video::STATUS, status & ~video::VBLANK)
+        reload_affine_references(emulator.memory)
+        emulator.devices.frames = emulator.devices.frames.wrapping_add(1)
+        return
+    }
+}

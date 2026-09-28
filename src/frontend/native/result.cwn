@@ -1,0 +1,7 @@
+module app {
+    struct Result {
+        emulator: emulator::State
+        code: u32
+    }
+
+}

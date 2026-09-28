@@ -1,0 +1,40 @@
+module app {
+    struct FrameSchedule {
+        last_render_tick: u64
+        rendered: bool
+    }
+
+    struct FrameClock {
+        now: u64
+        frame_ticks: u64
+    }
+
+    fn new_frame_schedule() -> FrameSchedule {
+        return FrameSchedule {
+            last_render_tick: 0, rendered: false
+        }
+    }
+
+    fn frame_schedule_render(
+        schedule: write FrameSchedule,
+        audio_ready: bool,
+        clock: FrameClock
+    ) -> bool {
+        var render = audio_ready || schedule.rendered == false
+        if clock.now < schedule.last_render_tick {
+            render = true
+        }
+        if clock.frame_ticks == 0 {
+            render = true
+        }
+        if render == false {
+            let elapsed = clock.now - schedule.last_render_tick
+            render = elapsed / clock.frame_ticks >= 2
+        }
+        if render {
+            schedule.last_render_tick = clock.now
+            schedule.rendered = true
+        }
+        return render
+    }
+}

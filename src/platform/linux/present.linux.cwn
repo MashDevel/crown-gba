@@ -1,0 +1,51 @@
+module platform {
+    fn present_frame(window: write Window, pixels: Vec<u32>) -> u32 {
+        if pixels.length() != usize.from(video::WIDTH * video::HEIGHT) {
+            return 86
+        }
+        match resize_image(window) {
+            Err(code) => {
+                return code
+            }
+            Ok(value) => {
+                value
+            }
+        }
+        unsafe {
+            scale_pixels(window, pixels)
+            native::x11::put_image(window.library, native::x11::PutImage {
+                    display: window.display, window: window.window, gc: window.gc, image: window.image
+                    src_x: 0, src_y: 0, dst_x: i32.from(window.width - window.image_width) / 2
+                    dst_y: i32.from(window.height - window.image_height) / 2
+                    width: window.image_width, height: window.image_height
+                })
+            native::x11::flush(window.library, window.display)
+        }
+        return 0
+    }
+
+    fn scale_pixels(window: Window, pixels: Vec<u32>) -> void {
+        unsafe {
+            let scale = window.image_width / u32.from(video::WIDTH)
+            let stride = usize.from(window.image_width)
+            for row in 0..usize.from(video::HEIGHT) {
+                let destination = window.pixels.offset(row * usize.from(scale) * stride)
+                scale_row(destination, pixels, row, usize.from(scale))
+                for repeat in 1..usize.from(scale) {
+                    raw_copy(RawPtr<u8>.cast(destination.offset(repeat * stride)), RawPtr<u8>.cast(destination), stride * 4)
+                }
+            }
+        }
+    }
+
+    unsafe fn scale_row(destination: RawPtr<u32>, pixels: Vec<u32>, row: usize, scale: usize) -> void {
+        unsafe {
+            for column in 0..usize.from(video::WIDTH) {
+                let value = pixels[row * usize.from(video::WIDTH) + column]
+                for repeat in 0..scale {
+                    destination.offset(column * scale + repeat).write(value)
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,200 @@
+module bios {
+    struct CopyPlan {
+        source: u32
+        destination: u32
+        count: u32
+        unit: u32
+        word: bool
+        fill: bool
+    }
+
+    struct CopyValue {
+        destination: u32
+        value: u32
+        word: bool
+    }
+
+    fn bios_copy(emulator: write emulator::State, fast: bool) -> void {
+        let control = emulator.cpu.registers[2]
+        var word = bits::bit_u32(control, 26)
+        if fast {
+            word = true
+        }
+        var count = control & 2097151
+        if fast {
+            count = count.wrapping_add(7) & 4294967288
+        }
+        var unit: u32 = 2
+        if word {
+            unit = 4
+        }
+        var source = emulator.cpu.registers[0] & memory::HALFWORD_ADDRESS_MASK
+        var destination = emulator.cpu.registers[1] & memory::HALFWORD_ADDRESS_MASK
+        if word {
+            source = source & memory::WORD_ADDRESS_MASK
+            destination = destination & memory::WORD_ADDRESS_MASK
+        }
+        let fill = bits::bit_u32(control, 24)
+        let plan = CopyPlan {
+            source: source
+            destination: destination
+            count: count
+            unit: unit
+            word: word
+            fill: fill
+        }
+        if fast == false {
+            let preview = copy_bus_read(emulator, source, word)
+        }
+        if copy_rejects_source(source, count, unit) {
+            return
+        }
+        if copy_direct_eligible(emulator, plan) {
+            copy_direct(emulator, plan)
+            return
+        }
+        copy_slow(emulator, plan)
+        return
+    }
+
+    fn copy_direct(emulator: write emulator::State, plan: CopyPlan) -> void {
+        var seed: u32 = 0
+        if plan.fill {
+            seed = copy_read(emulator, plan.source, plan.word)
+        }
+        var source = plan.source
+        var destination = plan.destination
+        var index: u32 = 0
+        while index < plan.count {
+            var value = seed
+            if plan.fill == false {
+                value = copy_read(emulator, source, plan.word)
+            }
+            let output = CopyValue {
+                destination: destination, value: value, word: plan.word
+            }
+            copy_write(emulator.memory, output)
+            if plan.fill == false {
+                source = source.wrapping_add(plan.unit)
+            }
+            destination = destination.wrapping_add(plan.unit)
+            index = index + 1
+        }
+        return
+    }
+
+    fn copy_slow(emulator: write emulator::State, plan: CopyPlan) -> void {
+        var seed: u32 = 0
+        if plan.fill {
+            seed = copy_bus_read(emulator, plan.source, plan.word)
+        }
+        var source = plan.source
+        var destination = plan.destination
+        var index: u32 = 0
+        while index < plan.count {
+            var value = seed
+            if plan.fill == false {
+                value = copy_bus_read(emulator, source, plan.word)
+            }
+            let output = CopyValue {
+                destination: destination, value: value, word: plan.word
+            }
+            copy_bus_write(emulator, output)
+            if plan.fill == false {
+                source = source.wrapping_add(plan.unit)
+            }
+            destination = destination.wrapping_add(plan.unit)
+            index = index + 1
+        }
+        return
+    }
+
+    fn copy_direct_eligible(emulator: emulator::State, plan: CopyPlan) -> bool {
+        if plan.count == 0 {
+            return true
+        }
+        if copy_destination_valid(plan) == false {
+            return false
+        }
+        if plan.fill {
+            return true
+        }
+        return copy_source_valid(emulator, plan)
+    }
+
+    fn copy_destination_valid(plan: CopyPlan) -> bool {
+        let length = usize.from(plan.count.wrapping_mul(plan.unit))
+        let region = plan.destination >> memory::REGION_SHIFT
+        if region == memory::region::EWRAM {
+            return (usize.from(plan.destination) & memory::EWRAM_MASK) + length <= memory::EWRAM_SIZE
+        }
+        if region == memory::region::IWRAM {
+            return (usize.from(plan.destination) & memory::IWRAM_MASK) + length <= memory::IWRAM_SIZE
+        }
+        return false
+    }
+
+    fn copy_source_valid(emulator: emulator::State, plan: CopyPlan) -> bool {
+        let length = usize.from(plan.count.wrapping_mul(plan.unit))
+        let region = plan.source >> 24
+        if region == memory::region::EWRAM {
+            return (usize.from(plan.source) & memory::EWRAM_MASK) + length <= memory::EWRAM_SIZE
+        }
+        if region == memory::region::IWRAM {
+            return (usize.from(plan.source) & memory::IWRAM_MASK) + length <= memory::IWRAM_SIZE
+        }
+        if region < memory::region::ROM_FIRST {
+            return false
+        }
+        if region > memory::region::ROM_LAST {
+            return false
+        }
+        let offset = usize.from(plan.source - memory::ROM_START)
+        return offset + length <= emulator.cartridge.length
+    }
+
+    fn copy_rejects_source(source: u32, count: u32, unit: u32) -> bool {
+        if count == 0 {
+            return false
+        }
+        let length = count.wrapping_mul(unit)
+        let end = source.wrapping_add(length.wrapping_sub(1))
+        if source < u32.from(memory::BIOS_SIZE) {
+            return true
+        }
+        return end < u32.from(memory::BIOS_SIZE)
+    }
+
+    fn copy_read(emulator: write emulator::State, source: u32, word: bool) -> u32 {
+        if word {
+            return memory::read32(emulator.memory, emulator.cartridge, source)
+        }
+        return u32.from(memory::read16(emulator.memory, emulator.cartridge, source))
+    }
+
+    fn copy_bus_read(emulator: write emulator::State, source: u32, word: bool) -> u32 {
+        if word {
+            return bus::read32(emulator, source)
+        }
+        return u32.from(bus::read16(emulator, source))
+    }
+
+    fn copy_write(memory: write memory::State, output: CopyValue) -> void {
+        if output.word {
+            memory::write32(memory, output.destination, output.value)
+            return
+        }
+        memory::write16(memory, output.destination, u16.from(output.value))
+        return
+    }
+
+    fn copy_bus_write(emulator: write emulator::State, output: CopyValue) -> void {
+        if output.word {
+            bus::write32(emulator, output.destination, output.value)
+            return
+        }
+        bus::write16(emulator, output.destination, u16.from(output.value))
+        return
+    }
+
+}

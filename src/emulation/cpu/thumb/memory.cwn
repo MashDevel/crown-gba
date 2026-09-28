@@ -1,0 +1,308 @@
+module cpu {
+    module thumb {
+        copy struct MultipleStore {
+            register: usize, base_register: usize, final_base: u32, stored_earlier: bool
+        }
+
+        struct Transfer {
+            operation: u32
+            destination: usize
+            address: u32
+        }
+
+        struct Store {
+            destination: usize
+            address: u32
+            byte: bool
+            halfword: bool
+        }
+
+        fn load_word(emulator: write emulator::State, address: u32) -> u32 {
+            let aligned = address & memory::WORD_ADDRESS_MASK
+            let value = bus::read32(emulator, aligned)
+            return bits::rotate_right_u32(value, (address & 3) * 8)
+        }
+
+        fn load_half(emulator: write emulator::State, address: u32) -> u32 {
+            let aligned = address & memory::HALFWORD_ADDRESS_MASK
+            let value = bus::read16(emulator, aligned)
+            return bits::rotate_right_u32(u32.from(value), (address & 1) * 8)
+        }
+
+        fn load_pc(emulator: write emulator::State, opcode: u32) -> u32 {
+            let destination = usize.from(opcode >> 8 & 7)
+            let base = cpu::read_register(emulator.cpu, cpu::PC) & 4294967293
+            let address = base.wrapping_add((opcode & 255) << 2)
+            let value = load_word(emulator, address)
+            cpu::write_register(emulator.cpu, destination, value)
+            return 3
+        }
+
+        fn transfer_register(
+            emulator: write emulator::State,
+            opcode: u32,
+            signed: bool
+        ) -> u32 {
+            let offset = cpu::read_register(emulator.cpu, usize.from(opcode >> 6 & 7))
+            let base = cpu::read_register(emulator.cpu, usize.from(opcode >> 3 & 7))
+            let destination = usize.from(opcode & 7)
+            let address = base.wrapping_add(offset)
+            let operation = opcode >> 10 & 3
+            let transfer = Transfer {
+                operation: operation
+                destination: destination
+                address: address
+            }
+            if signed {
+                signed_transfer(emulator, transfer)
+            } else {
+                unsigned_transfer(emulator, transfer)
+            }
+            return 3
+        }
+
+        fn unsigned_transfer(emulator: write emulator::State, transfer: Transfer) -> void {
+            if transfer.operation == 0 {
+                bus::write32(
+                    emulator,
+                    transfer.address,
+                    cpu::read_register(emulator.cpu, transfer.destination)
+                )
+            }
+            if transfer.operation == 1 {
+                bus::write8(
+                    emulator,
+                    transfer.address,
+                    u8.from(cpu::read_register(emulator.cpu, transfer.destination) & 255)
+                )
+            }
+            if transfer.operation == 2 {
+                let value = load_word(emulator, transfer.address)
+                cpu::write_register(emulator.cpu, transfer.destination, value)
+            }
+            if transfer.operation == 3 {
+                let value = bus::read8(emulator, transfer.address)
+                cpu::write_register(emulator.cpu, transfer.destination, u32.from(value))
+            }
+            return
+        }
+
+        fn signed_transfer(emulator: write emulator::State, transfer: Transfer) -> void {
+            if transfer.operation == 0 {
+                let value = cpu::read_register(emulator.cpu, transfer.destination)
+                bus::write16(emulator, transfer.address, u16.from(value & 65535))
+                return
+            }
+            if transfer.operation == 1 {
+                let byte = bus::read8(emulator, transfer.address)
+                let value = u32.from_bits(i32.from(i8.from_bits(byte)))
+                cpu::write_register(emulator.cpu, transfer.destination, value)
+                return
+            }
+            if transfer.operation == 2 {
+                let value = load_half(emulator, transfer.address)
+                cpu::write_register(emulator.cpu, transfer.destination, value)
+                return
+            }
+            let value = cpu::arm::load_halfword(emulator, 3, transfer.address)
+            cpu::write_register(emulator.cpu, transfer.destination, value)
+            return
+        }
+
+        fn transfer_immediate(
+            emulator: write emulator::State,
+            opcode: u32,
+            halfword: bool
+        ) -> u32 {
+            let base = cpu::read_register(emulator.cpu, usize.from(opcode >> 3 & 7))
+            let destination = usize.from(opcode & 7)
+            var offset = (opcode >> 6 & 31) << 2
+            var byte = bits::bit_u32(opcode, 12)
+            if byte {
+                offset = opcode >> 6 & 31
+            }
+            if halfword {
+                offset = (opcode >> 6 & 31) << 1
+                byte = false
+            }
+            let address = base.wrapping_add(offset)
+            if bits::bit_u32(opcode, 11) {
+                var value: u32 = 0
+                if byte {
+                    value = u32.from(bus::read8(emulator, address))
+                } else {
+                    if halfword {
+                        value = load_half(emulator, address)
+                    } else {
+                        value = load_word(emulator, address)
+                    }
+                }
+                cpu::write_register(emulator.cpu, destination, value)
+            } else {
+                let store = Store {
+                    destination: destination
+                    address: address
+                    byte: byte
+                    halfword: halfword
+                }
+                store_immediate(emulator, store)
+            }
+            return 3
+        }
+
+        fn store_immediate(emulator: write emulator::State, store: Store) -> void {
+            let value = cpu::read_register(emulator.cpu, store.destination)
+            if store.byte {
+                bus::write8(emulator, store.address, u8.from(value & 255))
+                return
+            }
+            if store.halfword {
+                bus::write16(emulator, store.address, u16.from(value & 65535))
+                return
+            }
+            bus::write32(emulator, store.address, value)
+            return
+        }
+
+        fn transfer_sp(emulator: write emulator::State, opcode: u32) -> u32 {
+            let destination = usize.from(opcode >> 8 & 7)
+            let base = cpu::read_register(emulator.cpu, cpu::SP)
+            let address = base.wrapping_add((opcode & 255) << 2)
+            if bits::bit_u32(opcode, 11) {
+                let value = load_word(emulator, address)
+                cpu::write_register(emulator.cpu, destination, value)
+            } else {
+                bus::write32(emulator, address, cpu::read_register(emulator.cpu, destination))
+            }
+            return 3
+        }
+
+        fn adjust_sp(cpu: write cpu::State, opcode: u32) -> u32 {
+            let offset = (opcode & 127) << 2
+            let base = cpu::read_register(cpu, cpu::SP)
+            if bits::bit_u32(opcode, 7) {
+                cpu::write_register(cpu, cpu::SP, base.wrapping_sub(offset))
+            } else {
+                cpu::write_register(cpu, cpu::SP, base.wrapping_add(offset))
+            }
+            return 1
+        }
+
+        fn add_sp_pc(cpu: write cpu::State, opcode: u32) -> u32 {
+            var base = cpu::read_register(cpu, cpu::PC) & 4294967293
+            if bits::bit_u32(opcode, 11) {
+                base = cpu::read_register(cpu, cpu::SP)
+            }
+            cpu::write_register(cpu, usize.from(opcode >> 8 & 7), base.wrapping_add((opcode & 255) << 2))
+            return 1
+        }
+
+        fn push_pop(emulator: write emulator::State, opcode: u32) -> u32 {
+            let is_pop = bits::bit_u32(opcode, 11)
+            let extra = bits::bit_u32(opcode, 8)
+            let list = u16.from(opcode & 255)
+            let count = bits::count_bits_u16(list) + bits::bool_u32(extra)
+            if is_pop {
+                pop(emulator, list, extra)
+            } else {
+                push(emulator, list, extra)
+            }
+            if is_pop {
+                if extra {
+                    return count + 2
+                }
+            }
+            return count + 1
+        }
+
+        fn pop(emulator: write emulator::State, list: u16, include_pc: bool) -> void {
+            var address = cpu::read_register(emulator.cpu, cpu::SP)
+            var register: usize = 0
+            while register < 8 {
+                if bits::bit_u16(list, register) {
+                    let value = load_word(emulator, address)
+                    cpu::write_register(emulator.cpu, register, value)
+                    address = address.wrapping_add(4)
+                }
+                register = register + 1
+            }
+            if include_pc {
+                let value = load_word(emulator, address)
+                cpu::write_register(emulator.cpu, cpu::PC, value)
+                address = address.wrapping_add(4)
+            }
+            cpu::write_register(emulator.cpu, cpu::SP, address)
+            return
+        }
+
+        fn push(emulator: write emulator::State, list: u16, include_lr: bool) -> void {
+            let count = bits::count_bits_u16(list) + bits::bool_u32(include_lr)
+            let stack = cpu::read_register(emulator.cpu, cpu::SP)
+            var address = stack.wrapping_sub(count * 4)
+            cpu::write_register(emulator.cpu, cpu::SP, address)
+            var register: usize = 0
+            while register < 8 {
+                if bits::bit_u16(list, register) {
+                    bus::write32(emulator, address, cpu::read_register(emulator.cpu, register))
+                    address = address.wrapping_add(4)
+                }
+                register = register + 1
+            }
+            if include_lr {
+                bus::write32(emulator, address, cpu::read_register(emulator.cpu, cpu::LR))
+            }
+            return
+        }
+
+        fn multiple(emulator: write emulator::State, opcode: u32) -> u32 {
+            let load = bits::bit_u32(opcode, 11)
+            let base_register = usize.from(opcode >> 8 & 7)
+            var list = u16.from(opcode & 255)
+            var count = bits::count_bits_u16(list)
+            var final_offset = count * 4
+            if list == 0 {
+                list = 32768
+                count = 1
+                final_offset = 64
+            }
+            var address = cpu::read_register(emulator.cpu, base_register)
+            let final_base = address.wrapping_add(final_offset)
+            var register: usize = 0
+            var stored_earlier = false
+            while register < 16 {
+                if bits::bit_u16(list, register) {
+                    if load {
+                        let value = load_word(emulator, address)
+                        cpu::write_register(emulator.cpu, register, value)
+                    } else {
+                        let value = multiple_store_value(emulator.cpu, MultipleStore {
+                                register: register, base_register: base_register, final_base: final_base, stored_earlier: stored_earlier
+                            })
+                        bus::write32(emulator, address, value)
+                        stored_earlier = true
+                    }
+                    address = address.wrapping_add(4)
+                }
+                register = register + 1
+            }
+            if load == false {
+                cpu::write_register(emulator.cpu, base_register, final_base)
+            } else {
+                if bits::bit_u16(list, base_register) == false {
+                    cpu::write_register(emulator.cpu, base_register, final_base)
+                }
+            }
+            if load {
+                return count + 1
+            }
+            return count
+        }
+
+        fn multiple_store_value(cpu: cpu::State, store: MultipleStore) -> u32 {
+            if store.register == store.base_register && store.stored_earlier {
+                return store.final_base
+            }
+            cpu::read_register(cpu, store.register)
+        }
+    }
+}

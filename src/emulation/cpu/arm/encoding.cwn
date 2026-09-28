@@ -1,0 +1,70 @@
+module cpu {
+    module arm {
+        module encoding {
+            const SWI_MASK: u32 = 0x0f000000
+            const SWI: u32 = 0x0f000000
+            const BRANCH_EXCHANGE_MASK: u32 = 0x0ffffff0
+            const BRANCH_EXCHANGE: u32 = 0x012fff10
+            const MULTIPLY_LONG_MASK: u32 = 0x0f8000f0
+            const MULTIPLY_LONG: u32 = 0x00800090
+            const MULTIPLY_MASK: u32 = 0x0fc000f0
+            const MULTIPLY: u32 = 0x00000090
+            const BRANCH_MASK: u32 = 0x0e000000
+            const BRANCH: u32 = 0x0a000000
+            const BLOCK_TRANSFER_MASK: u32 = 0x0e000000
+            const BLOCK_TRANSFER: u32 = 0x08000000
+            const HALFWORD_TRANSFER_MASK: u32 = 0x0e000090
+            const HALFWORD_TRANSFER: u32 = 0x00000090
+            const SINGLE_TRANSFER_MASK: u32 = 0x0c000000
+            const SINGLE_TRANSFER: u32 = 0x04000000
+            const DATA_MASK: u32 = 0x0c000000
+            const DATA: u32 = 0x00000000
+            const READ_PSR_MASK: u32 = 0x0fbf0fff
+            const READ_PSR: u32 = 0x010f0000
+            const WRITE_PSR_MASK: u32 = 0x0fb0f000
+            const WRITE_PSR_IMMEDIATE: u32 = 0x0320f000
+            const WRITE_PSR_REGISTER: u32 = 0x0120f000
+            const REGISTER_MASK: u32 = 15
+            const DESTINATION_SHIFT: u32 = 12
+            const BASE_SHIFT: u32 = 16
+            const MULTIPLIER_SHIFT: u32 = 8
+            const CONDITION_SHIFT: u32 = 28
+            const ALU_SHIFT: u32 = 21
+            const ALU_MASK: u32 = 15
+            const IMMEDIATE: u32 = 25
+            const SET_FLAGS: u32 = 20
+            const REGISTER_SHIFT: u32 = 4
+            const ACCUMULATE: u32 = 21
+            const SIGNED_MULTIPLY: u32 = 22
+            const LOAD: u32 = 20
+            const BYTE_TRANSFER: u32 = 22
+            const PREINDEX: u32 = 24
+            const UP: u32 = 23
+            const WRITEBACK: u32 = 21
+            const REGISTER_OFFSET: u32 = 25
+            const IMMEDIATE_HALFWORD: u32 = 22
+            const FORCE_USER: u32 = 22
+            const SAVED_PSR: u32 = 22
+            const LINK: u32 = 24
+        }
+
+        module operation {
+            const AND: u32 = 0
+            const XOR: u32 = 1
+            const SUBTRACT: u32 = 2
+            const REVERSE_SUBTRACT: u32 = 3
+            const ADD: u32 = 4
+            const ADD_CARRY: u32 = 5
+            const SUBTRACT_CARRY: u32 = 6
+            const REVERSE_SUBTRACT_CARRY: u32 = 7
+            const TEST: u32 = 8
+            const TEST_EQUAL: u32 = 9
+            const COMPARE: u32 = 10
+            const COMPARE_NEGATIVE: u32 = 11
+            const OR: u32 = 12
+            const MOVE: u32 = 13
+            const BIT_CLEAR: u32 = 14
+            const NOT: u32 = 15
+        }
+    }
+}

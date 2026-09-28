@@ -1,0 +1,109 @@
+module bios {
+    struct HuffmanReader {
+        address: u32
+        buffer: u32
+        remaining: u32
+    }
+
+    struct HuffmanDecoder {
+        tree_base: u32
+        reader: HuffmanReader
+        destination: u32
+        output: u32
+        output_bits: u32
+        written_bits: u32
+        total_bits: u32
+        unit_bits: u32
+        mask: u32
+    }
+
+    fn huffman(emulator: write emulator::State) -> void {
+        let source = emulator.cpu.registers[0]
+        let header = bus::read32(emulator, source)
+        if header & 240 != 32 {
+            return
+        }
+        let unit_bits = header & 15
+        if unit_bits == 0 {
+            return
+        }
+        let tree_size = bus::read8(emulator, source.wrapping_add(4))
+        var mask: u32 = 4294967295
+        if unit_bits < 8 {
+            mask = (1 << unit_bits) - 1
+        }
+        var decoder = HuffmanDecoder {
+            tree_base: source.wrapping_add(5)
+            reader: HuffmanReader {
+                address: source.wrapping_add(6 + u32.from(tree_size) * 2)
+                buffer: 0
+                remaining: 0
+            }
+            destination: emulator.cpu.registers[1]
+            output: 0
+            output_bits: 0
+            written_bits: 0
+            total_bits: (header >> 8) * 8
+            unit_bits: unit_bits
+            mask: mask
+        }
+        while decoder.written_bits < decoder.total_bits {
+            let value = huffman_symbol(emulator, decoder)
+            huffman_append(emulator, decoder, value)
+        }
+        if decoder.output_bits != 0 {
+            bus::write32(emulator, decoder.destination, decoder.output)
+        }
+        return
+    }
+
+    fn huffman_symbol(emulator: write emulator::State, decoder: write HuffmanDecoder) -> u32 {
+        var node_address = decoder.tree_base
+        while true {
+            let bit = huffman_bit(emulator, decoder.reader)
+            let node = bus::read8(emulator, node_address)
+            let offset = (u32.from(node & 63) + 1) * 2
+            let parent = node_address & memory::HALFWORD_ADDRESS_MASK
+            let child = parent.wrapping_add(offset + bit)
+            var leaf_mask: u8 = 128
+            if bit != 0 {
+                leaf_mask = 64
+            }
+            if node & leaf_mask != 0 {
+                let value = bus::read8(emulator, child)
+                return u32.from(value) & decoder.mask
+            }
+            node_address = child
+        }
+        return 0
+    }
+
+    fn huffman_bit(emulator: write emulator::State, reader: write HuffmanReader) -> u32 {
+        if reader.remaining == 0 {
+            reader.buffer = bus::read32(emulator, reader.address)
+            reader.address = reader.address.wrapping_add(4)
+            reader.remaining = 32
+        }
+        let bit = reader.buffer >> 31
+        reader.buffer = reader.buffer << 1
+        reader.remaining = reader.remaining - 1
+        return bit
+    }
+
+    fn huffman_append(
+        emulator: write emulator::State,
+        decoder: write HuffmanDecoder,
+        value: u32
+    ) -> void {
+        decoder.output = decoder.output | value << decoder.output_bits
+        decoder.output_bits = decoder.output_bits + decoder.unit_bits
+        decoder.written_bits = decoder.written_bits + decoder.unit_bits
+        if decoder.output_bits >= 32 {
+            bus::write32(emulator, decoder.destination, decoder.output)
+            decoder.destination = decoder.destination.wrapping_add(4)
+            decoder.output = 0
+            decoder.output_bits = 0
+        }
+        return
+    }
+}

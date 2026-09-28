@@ -1,0 +1,131 @@
+fn test_signature_cartridge(text: Text) -> cartridge::Image {
+    var words = Vec<u32>.new()
+    loan read text as bytes {
+        var offset: usize = 0
+        while offset < bytes.length() {
+            var word: u32 = 0
+            var part: usize = 0
+            while part < 4 && offset < bytes.length() {
+                word = word |(u32.from(bytes[offset]) << u32.from(part * 8))
+                part = part + 1
+                offset = offset + 1
+            }
+            words.push(word)
+        }
+        var mask: usize = 0
+        if bytes.length() != 0 {
+            mask = cartridge::power_mask(bytes.length())
+        }
+        return cartridge::Image {
+            data: move words, length: bytes.length(), mask: mask
+        }
+    }
+}
+
+fn test_backup_signature(text: take Text, expected: backup::Kind) -> bool {
+    let cartridge = test_signature_cartridge(text)
+    cartridge::save_kind(cartridge) == expected
+}
+
+fn test_cartridge_signatures() -> u32 {
+    if test_backup_signature("FLASH1M_", backup::Kind::Flash128()) == false {
+        return 500
+    }
+    if test_backup_signature("FLASH512", backup::Kind::Flash64()) == false {
+        return 501
+    }
+    if test_backup_signature("EEPROM_V", backup::Kind::Eeprom()) == false {
+        return 502
+    }
+    if test_backup_signature("SRAM_V01", backup::Kind::Sram()) == false {
+        return 503
+    }
+    if test_backup_signature("xxxxxxxxFLASH1M_", backup::Kind::Flash128()) == false {
+        return 504
+    }
+    if test_backup_signature("FLASX1M_", backup::Kind::Absent()) == false {
+        return 505
+    }
+    if test_backup_signature("FLASH1M", backup::Kind::Absent()) == false {
+        return 506
+    }
+    if test_backup_signature("", backup::Kind::Absent()) == false {
+        return 507
+    }
+    0
+}
+
+fn test_cartridge_wrapping() -> u32 {
+    let mask = test_cartridge_masks();
+    if mask != 0 {
+        return mask
+    }
+    let normal = test_nonpower_cartridge_reads();
+    if normal != 0 {
+        return normal
+    }
+    test_power_cartridge_reads()
+}
+
+fn test_cartridge_masks() -> u32 {
+    if cartridge::power_mask(16) != 15 {
+        return 340
+    }
+    if cartridge::wrapped_index(17, 16, 15) != 1 {
+        return 341
+    }
+    if cartridge::power_mask(15) != 15 {
+        return 342
+    }
+    if cartridge::wrapped_index(17, 15, 15) != 2 {
+        return 343
+    }
+    if cartridge::power_mask(1) != 0 {
+        return 344
+    }
+    if cartridge::wrapped_index(7, 1, 0) != 0 {
+        return 345
+    }
+    0
+}
+
+fn test_nonpower_cartridge_reads() -> u32 {
+    var words = Vec<u32>.new()
+    words.push(1144201745)
+    words.push(26197)
+    let cartridge = cartridge::Image {
+        data: move words, length: 6, mask: 6
+    }
+    if cartridge::read8(cartridge, 134217729) != 34 {
+        return 368
+    }
+    if cartridge::read16(cartridge, 134217730) != 17459 {
+        return 369
+    }
+    if cartridge::read32(cartridge, 134217728) != 1144201745 {
+        return 370
+    }
+    if cartridge::read16(cartridge, 134217732) != 26197 {
+        return 371
+    }
+    if cartridge::read8(cartridge, 134217734) != 17 {
+        return 372
+    }
+    0
+}
+
+fn test_power_cartridge_reads() -> u32 {
+    var power_words = Vec<u32>.new()
+    power_words.push(1144201745)
+    power_words.push(2289526357)
+    let power_cartridge = cartridge::Image {
+        data: move power_words, length: 8, mask: 7
+    }
+    if cartridge::read16(power_cartridge, 134217730) != 17459 {
+        return 406
+    }
+    if cartridge::read16(power_cartridge, 134217734) != 34935 {
+        return 407
+    }
+    0
+}

@@ -1,0 +1,73 @@
+module platform {
+    extern "c" {
+        fn input_errno() -> RawPtr<i32> = "__errno_location"
+    }
+
+    opaque resource Gamepad {
+        descriptor: i32
+        retry: u64
+        state: app::JoystickState
+        drop {
+            unsafe {
+                if descriptor >= 0 {
+                    host::close(descriptor)
+                }
+            }
+        }
+    }
+
+    fn open_gamepad() -> Gamepad {
+        unsafe {
+            return Gamepad {
+                descriptor: -1, retry: 0, state: app::joystick_state()
+            }
+        }
+    }
+
+    fn poll_gamepad(gamepad: write Gamepad) -> u32 {
+        unsafe {
+            reconnect_gamepad(gamepad)
+            if gamepad.descriptor < 0 {
+                return 0
+            }
+            var event = std::bytes::filled(8, 0)
+            var count: usize = 0
+            while count < 128 {
+                let received = host::host_read(gamepad.descriptor, event.as_raw(), 8)
+                if received == 8 {
+                    app::joystick_event(gamepad.state, event)
+                }
+                else {
+                    if received >= 0 || input_errno().read() != 11 {
+                        disconnect_gamepad(gamepad)
+                    }
+                    break
+                }
+                count = count + 1
+            }
+            return app::joystick_keys(gamepad.state)
+        }
+    }
+
+    fn reconnect_gamepad(gamepad: write Gamepad) -> void {
+        unsafe {
+            if gamepad.descriptor >= 0 {
+                return
+            }
+            let now = nanoseconds()
+            if now < gamepad.retry {
+                return
+            }
+            gamepad.retry = now + 500000000
+            gamepad.descriptor = host::open("/dev/input/js0\0".as_raw(), 2048)
+        }
+    }
+
+    fn disconnect_gamepad(gamepad: write Gamepad) -> void {
+        unsafe {
+            host::close(gamepad.descriptor)
+            gamepad.descriptor = -1
+            gamepad.state = app::joystick_state()
+        }
+    }
+}

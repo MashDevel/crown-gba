@@ -1,0 +1,138 @@
+module audio {
+    struct PulseChannel {
+        control: ChannelControl
+        envelope: Envelope
+        duty: u8
+        frequency: u16
+        phase_cycles: u64
+        sweep_period: u8
+        sweep_timer: u8
+        sweep_shift: u8
+        sweep_negate: bool
+        shadow_frequency: u16
+    }
+
+    fn new_pulse_channel() -> PulseChannel {
+        return PulseChannel {
+            control: new_channel_control()
+            envelope: new_envelope()
+            duty: 2
+            frequency: 0
+            phase_cycles: 0
+            sweep_period: 0
+            sweep_timer: 0
+            sweep_shift: 0
+            sweep_negate: false
+            shadow_frequency: 0
+        }
+    }
+
+    fn pulse_set_sweep(pulse: write PulseChannel, value: u16) -> void {
+        pulse.sweep_period = u8.from(value >> 4 & 7)
+        pulse.sweep_negate = value & 8 != 0
+        pulse.sweep_shift = u8.from(value & 7)
+        return
+    }
+
+    fn pulse_set_envelope(pulse: write PulseChannel, value: u16) -> void {
+        pulse.duty = u8.from(value >> 6 & 3)
+        pulse.control.length = 64 -(value & 63)
+        envelope_set(pulse.envelope, value)
+        channel_set_dac(pulse.control, value & ENVELOPE_DAC_MASK != 0)
+        return
+    }
+
+    fn pulse_set_frequency(pulse: write PulseChannel, value: u16) -> void {
+        pulse.frequency = value & FREQUENCY_MASK
+        pulse.control.length_enabled = value & LENGTH_ENABLE != 0
+        if value & TRIGGER != 0 {
+            pulse_trigger(pulse)
+        }
+        return
+    }
+
+    fn pulse_trigger(pulse: write PulseChannel) -> void {
+        channel_trigger(pulse.control, 64)
+        pulse.phase_cycles = 0
+        pulse.shadow_frequency = pulse.frequency
+        envelope_trigger(pulse.envelope)
+        pulse.sweep_timer = pulse.sweep_period
+        if pulse.sweep_timer == 0 {
+            pulse.sweep_timer = 1
+        }
+        return
+    }
+
+    fn pulse_step(pulse: write PulseChannel, cycles: u64) -> void {
+        if channel_active(pulse.control) == false {
+            return
+        }
+        if pulse.envelope.volume == 0 {
+            return
+        }
+        let period = u64.from(FREQUENCY_RANGE - pulse.frequency) * 128
+        pulse.phase_cycles = pulse.phase_cycles.wrapping_add(cycles) % period
+        return
+    }
+
+    fn pulse_sample(pulse: PulseChannel) -> i32 {
+        if channel_active(pulse.control) == false {
+            return 0
+        }
+        if pulse.envelope.volume == 0 {
+            return 0
+        }
+        let period = u64.from(FREQUENCY_RANGE - pulse.frequency) * 128
+        var numerator: u64 = 1
+        var denominator: u64 = 8
+        if pulse.duty == 1 {
+            numerator = 1;
+            denominator = 4
+        }
+        if pulse.duty == 2 {
+            numerator = 1;
+            denominator = 2
+        }
+        if pulse.duty == 3 {
+            numerator = 3;
+            denominator = 4
+        }
+        let high = pulse.phase_cycles < period * numerator / denominator
+        let volume = i32.from(pulse.envelope.volume)
+        if high {
+            return volume
+        }
+        return -volume
+    }
+
+    fn pulse_sweep_tick(pulse: write PulseChannel) -> void {
+        if pulse.control.enabled == false {
+            return
+        }
+        if pulse.sweep_shift == 0 {
+            return
+        }
+        if pulse.sweep_timer != 0 {
+            pulse.sweep_timer = pulse.sweep_timer - 1
+        }
+        if pulse.sweep_timer != 0 {
+            return
+        }
+        pulse.sweep_timer = pulse.sweep_period
+        if pulse.sweep_timer == 0 {
+            pulse.sweep_timer = 1
+        }
+        let delta = pulse.shadow_frequency >> u16.from(pulse.sweep_shift)
+        var next = pulse.shadow_frequency.wrapping_add(delta)
+        if pulse.sweep_negate {
+            next = pulse.shadow_frequency.wrapping_sub(delta)
+        }
+        if next > FREQUENCY_MASK {
+            pulse.control.enabled = false;
+            return
+        }
+        pulse.shadow_frequency = next
+        pulse.frequency = next
+        return
+    }
+}

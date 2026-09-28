@@ -1,0 +1,118 @@
+fn input_event(kind: u8, index: u8, value: u16) -> Vec<u8> {
+    var bytes = std::bytes::filled(8, 0)
+    bytes[4] = u8.from(value & 255)
+    bytes[5] = u8.from(value >> 8)
+    bytes[6] = kind
+    bytes[7] = index
+    return move bytes
+}
+
+fn test_linux_buttons() -> u32 {
+    var state = app::joystick_state()
+    let buttons: [u8; 6] = [0, 1, 6, 7, 5, 4]
+    let expected: [u32; 6] = [1, 2, 4, 8, 256, 512]
+    for index in 0..6 {
+        if app::joystick_event(state, input_event(129, buttons[index], 1)) == false {
+            return 1
+        }
+        if app::joystick_keys(state) != expected[index] {
+            return 2
+        }
+        app::joystick_event(state, input_event(1, buttons[index], 0))
+        if app::joystick_keys(state) != 0 {
+            return 3
+        }
+    }
+    app::joystick_event(state, input_event(1, 255, 1))
+    if app::joystick_keys(state) != 0 {
+        return 4
+    }
+    if app::joystick_event(state, std::bytes::filled(7, 0)) {
+        return 5
+    }
+    return 0
+}
+
+fn test_linux_axes() -> u32 {
+    var state = app::joystick_state()
+    for index in 0..4 {
+        let axes: [u8; 4] = [0, 1, 6, 7]
+        let positive: [u32; 4] = [16, 128, 16, 128]
+        let negative: [u32; 4] = [32, 64, 32, 64]
+        app::joystick_event(state, input_event(2, axes[index], 16383))
+        if app::joystick_keys(state) != 0 {
+            return 6
+        }
+        app::joystick_event(state, input_event(2, axes[index], 16384))
+        if app::joystick_keys(state) != positive[index] {
+            return 7
+        }
+        app::joystick_event(state, input_event(130, axes[index], 49152))
+        if app::joystick_keys(state) != negative[index] {
+            return 8
+        }
+        app::joystick_event(state, input_event(2, axes[index], 0))
+    }
+    return 0
+}
+
+fn test_linux_keys_and_size() -> u32 {
+    let keys: [u64; 10] = [122, 120, 65288, 65293, 65363, 65361, 65362, 65364, 115, 97]
+    for index in 0..10 {
+        if app::linux_key_mask(keys[index]) != u32.from(1) << u32.from(index) {
+            return 9
+        }
+    }
+    if app::linux_key_mask(0) != 0 || app::linux_key_mask(90) != 1 {
+        return 10
+    }
+    if app::image_dimensions(1280, 800) !=[1200, 800] {
+        return 11
+    }
+    if app::image_dimensions(0, 0) !=[240, 160] {
+        return 12
+    }
+    if app::image_dimensions(4294967295, 4294967295) !=[3840, 2560] {
+        return 13
+    }
+    return 0
+}
+
+fn test_linux_frontend() -> u32 {
+    let identity = test_game_identity()
+    if identity != 0 {
+        return identity
+    }
+    let buttons = test_linux_buttons()
+    if buttons != 0 {
+        return buttons
+    }
+    let axes = test_linux_axes()
+    if axes != 0 {
+        return axes
+    }
+    let keys = test_linux_keys_and_size()
+    if keys != 0 {
+        return keys
+    }
+    return test_linux_audio()
+}
+
+fn test_game_identity() -> u32 {
+    if integration::steam::game_identity("2147483001") != 2147483001 {
+        return 14
+    }
+    if integration::steam::game_identity("4294967295") != 4294967295 {
+        return 15
+    }
+    if integration::steam::game_identity("4294967296") != 0 {
+        return 16
+    }
+    if integration::steam::game_identity("") != 0 || integration::steam::game_identity("0") != 0 {
+        return 17
+    }
+    if integration::steam::game_identity("-1") != 0 || integration::steam::game_identity("game") != 0 {
+        return 18
+    }
+    return 0
+}

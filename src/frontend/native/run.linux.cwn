@@ -1,0 +1,62 @@
+module app {
+    fn run_native_frontend(emulator: take emulator::State) -> Option<Result> {
+        var machine = move emulator
+        let code = run_linux(machine)
+        return Some(Result {
+                emulator: move machine, code: code
+            })
+    }
+
+    fn run_linux(machine: write emulator::State) -> u32 {
+        var window = match platform::open_window() {
+            Ok(value) => move value
+            Err(code) => {
+                return code
+            }
+        }
+        var audio = match platform::open_audio() {
+            Ok(value) => move value
+            Err(code) => {
+                return code
+            }
+        }
+        var gamepad = platform::open_gamepad()
+        while platform::window_running(window) {
+            let pressed = platform::poll_window(window) | platform::poll_gamepad(gamepad)
+            keypad::set_pressed(machine.memory, u16.from(pressed))
+            let timeout: i32 = if platform::audio_needs_frames(audio) {
+                0
+            } else {
+                2
+            }
+            let status = platform::poll_audio(audio, timeout)
+            if status != 0 {
+                return status
+            }
+            if platform::audio_needs_frames(audio) {
+                let result = linux_frame(machine, window, audio)
+                if result != 0 {
+                    return result
+                }
+            }
+        }
+        return 0
+    }
+
+    fn linux_frame(machine: write emulator::State, window: write platform::Window, audio: write platform::Audio) -> u32 {
+        let render = platform::audio_render_ready(audio) || audio::master_enabled(machine.audio) == false
+        let result = emulator::run_frame_with_video(machine, render)
+        if result != 0 {
+            return result
+        }
+        let rate = u32.from(video::CLOCK_HZ / audio::sample_cycles(machine.audio))
+        if platform::submit_audio(audio, machine.audio.samples, rate) == false {
+            return 99
+        }
+        audio::clear_samples(machine.audio)
+        if render {
+            return platform::present_frame(window, machine.ppu.framebuffer)
+        }
+        return 0
+    }
+}

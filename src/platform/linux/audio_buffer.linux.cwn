@@ -1,0 +1,44 @@
+module pipewire {
+    struct CallbackState {
+        stream: RawPtr<u8>
+        dequeue: fn(read RawPtr<u8>) -> RawPtr<native::pipewire::Buffer>
+        queue: fn(read RawPtr<u8>, read RawPtr<native::pipewire::Buffer>) -> i32
+        ring: app::SampleRing
+        quantum: usize
+        failed: bool
+    }
+
+    fn process(state: write CallbackState) -> void {
+        unsafe {
+            let dequeue = state.dequeue
+            let buffer = dequeue(state.stream)
+            if buffer == RawPtr<native::pipewire::Buffer>.from_address(0) {
+                return
+            }
+            fill_buffer(state, buffer)
+            let queue = state.queue
+            if queue(state.stream, buffer) < 0 {
+                state.failed = true
+            }
+        }
+    }
+
+    fn fill_buffer(state: write CallbackState, pointer: RawPtr<native::pipewire::Buffer>) -> void {
+        unsafe {
+            let buffer = match integration::audio::mapped_audio(pointer) {
+                Some(value) => value
+                None => {
+                    state.failed = true;
+                    return
+                }
+            }
+            if buffer.frames != 0 {
+                state.quantum = usize.from(buffer.frames)
+            }
+            for index in 0..usize.from(buffer.frames) * 2 {
+                buffer.data.offset(index).write(app::ring_sample(state.ring))
+            }
+            integration::audio::commit_audio(buffer)
+        }
+    }
+}

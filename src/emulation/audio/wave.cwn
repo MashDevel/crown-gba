@@ -1,0 +1,86 @@
+module audio {
+    const WAVE_DAC_ENABLE: u16 = 1 << 7
+    const WAVE_FORCE_75_PERCENT: u16 = 1 << 15
+    const WAVE_LENGTH_RANGE: u16 = 256
+    const WAVE_SAMPLES: usize = 32
+
+    struct WaveChannel {
+        control: ChannelControl
+        frequency: u16
+        phase_cycles: u64
+        index: usize
+        volume_code: u8
+        force_75: bool
+    }
+
+    fn new_wave_channel() -> WaveChannel {
+        return WaveChannel {
+            control: new_channel_control()
+            frequency: 0
+            phase_cycles: 0
+            index: 0
+            volume_code: 0
+            force_75: false
+        }
+    }
+
+    fn wave_set_control(wave: write WaveChannel, value: u16) -> void {
+        channel_set_dac(wave.control, value & WAVE_DAC_ENABLE != 0)
+        return
+    }
+
+    fn wave_set_length(wave: write WaveChannel, value: u16) -> void {
+        wave.control.length = WAVE_LENGTH_RANGE -(value & 255)
+        wave.volume_code = u8.from(value >> 13 & 3)
+        wave.force_75 = value & WAVE_FORCE_75_PERCENT != 0
+        return
+    }
+
+    fn wave_set_frequency(wave: write WaveChannel, value: u16) -> void {
+        wave.frequency = value & FREQUENCY_MASK
+        wave.control.length_enabled = value & LENGTH_ENABLE != 0
+        if value & TRIGGER != 0 {
+            channel_trigger(wave.control, WAVE_LENGTH_RANGE)
+            wave.phase_cycles = 0
+            wave.index = 0
+        }
+        return
+    }
+
+    fn wave_step(wave: write WaveChannel, cycles: u64) -> void {
+        if channel_active(wave.control) == false {
+            return
+        }
+        let period = u64.from(FREQUENCY_RANGE - wave.frequency) * 8
+        wave.phase_cycles = wave.phase_cycles.wrapping_add(cycles)
+        let steps = wave.phase_cycles / period
+        wave.phase_cycles = wave.phase_cycles % period
+        wave.index = (wave.index + usize.from(steps)) % WAVE_SAMPLES
+        return
+    }
+
+    fn wave_sample(wave: WaveChannel, registers: Vec<u8>) -> i32 {
+        if channel_active(wave.control) == false {
+            return 0
+        }
+        let byte = registers[WAVE_RAM - REGISTER_BASE + wave.index / 2]
+        var sample = i32.from(byte & 15)
+        if wave.index % 2 == 0 {
+            sample = i32.from(byte >> 4)
+        }
+        if wave.force_75 {
+            sample = sample * 3 / 4
+        } else {
+            if wave.volume_code == 0 {
+                sample = 0
+            }
+            if wave.volume_code == 2 {
+                sample = sample / 2
+            }
+            if wave.volume_code == 3 {
+                sample = sample / 4
+            }
+        }
+        return sample * 2 - 15
+    }
+}

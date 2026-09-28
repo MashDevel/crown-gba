@@ -1,0 +1,200 @@
+fn truncate_backup_file(path: read TextView) -> u32 {
+    let created = backup::save_path(path)
+    match move created {
+        Ok(save_path) => {
+            let mode = "wb\0"
+            unsafe {
+                let file = std::io::raw_open(host::buffer_read_pointer(save_path), mode.as_raw())
+                if file == RawPtr<u8>.from_address(0) {
+                    return 401
+                }
+                if std::io::raw_close(file) != 0 {
+                    return 402
+                }
+            }
+            return 0
+        }
+        Err(code) => {
+            return code
+        }
+    }
+}
+
+fn test_host_path_encoding() -> u32 {
+    let path = "crown"
+    loan read path as view {
+        let encoded = std::cstr::encode(view)
+        match move encoded {
+            Some(bytes) => {
+                if bytes.length() != 6 {
+                    return 410
+                }
+                if bytes[0] != 99 {
+                    return 411
+                }
+                if bytes[5] != 0 {
+                    return 412
+                }
+            }
+            None => {
+                return 413
+            }
+        }
+    }
+    let empty_path = ""
+    loan read empty_path as view {
+        let empty = std::cstr::encode(view)
+        match move empty {
+            Some(bytes) => {
+                if bytes.length() != 1 || bytes[0] != 0 {
+                    return 414
+                }
+            }
+            None => {
+                return 415
+            }
+        }
+    }
+    let embedded_path = "bad\0tail"
+    loan read embedded_path as view {
+        let embedded = std::cstr::encode(view)
+        match move embedded {
+            Some(bytes) => {
+                return 416
+            }
+            None => {
+                return 0
+            }
+        }
+    }
+    return 417
+}
+
+fn test_empty_save_file(path: read TextView, emulator: write emulator::State) -> u32 {
+    let truncated = truncate_backup_file(path)
+    if truncated != 0 {
+        return truncated
+    }
+    emulator.memory.save_kind = backup::Kind::Absent()
+    let absent = backup::load(path, emulator.memory)
+    if absent != 0 {
+        return 403
+    }
+    if emulator.memory.save_kind != backup::Kind::Absent() {
+        return 404
+    }
+    emulator.memory.save_kind = backup::Kind::Sram()
+    backup::clear_vector_to(emulator.memory.backup, 255)
+    emulator.memory.backup[291] = 91
+    let empty = backup::load(path, emulator.memory)
+    if empty != 0 {
+        return 405
+    }
+    if emulator.memory.backup[291] != 91 {
+        return 406
+    }
+    let saved = backup::save_backup(path, emulator.memory)
+    if saved != 0 {
+        return 407
+    }
+    emulator.memory.backup[291] = 0
+    let loaded = backup::load(path, emulator.memory)
+    if loaded != 0 {
+        return 408
+    }
+    if emulator.memory.backup[291] != 91 {
+        return 409
+    }
+    return 0
+}
+
+fn eeprom_address(memory: write memory::State, address: read u8) -> void {
+    var shift: u8 = 6
+    while shift != 0 {
+        shift = shift - 1
+        backup::eeprom_write_bit(memory, address >> shift & 1)
+    }
+    return
+}
+
+fn eeprom_payload(memory: write memory::State) -> void {
+    var byte: u8 = 0
+    while byte < 8 {
+        var shift: u8 = 8
+        while shift != 0 {
+            shift = shift - 1
+            backup::eeprom_write_bit(memory, byte >> shift & 1)
+        }
+        byte = byte + 1
+    }
+    return
+}
+
+fn test_eeprom(emulator: write emulator::State) -> u32 {
+    emulator.memory.save_kind = backup::Kind::Eeprom()
+    backup::clear_vector_to(emulator.memory.backup, 255)
+    backup::eeprom_write_bit(emulator.memory, 1)
+    backup::eeprom_write_bit(emulator.memory, 1)
+    backup::eeprom_write_bit(emulator.memory, 0)
+    eeprom_address(emulator.memory, 1)
+    eeprom_payload(emulator.memory)
+    if bus::read16(emulator, 218103808) != 1 {
+        return 27
+    }
+    backup::eeprom_write_bit(emulator.memory, 1)
+    backup::eeprom_write_bit(emulator.memory, 1)
+    backup::eeprom_write_bit(emulator.memory, 1)
+    eeprom_address(emulator.memory, 1)
+    var prefix: usize = 0
+    while prefix < 4 {
+        if bus::read16(emulator, 218103808) != 0 {
+            return 28
+        }
+        prefix = prefix + 1
+    }
+    var expected: u8 = 0
+    while expected < 8 {
+        var value: u8 = 0
+        var bit: usize = 0
+        while bit < 8 {
+            value = value << 1 | u8.from(bus::read16(emulator, 218103808))
+            bit = bit + 1
+        }
+        if value != expected {
+            return 29
+        }
+        expected = expected + 1
+    }
+    return 0
+}
+
+fn test_save_file(path: read TextView, emulator: write emulator::State) -> u32 {
+    emulator.memory.save_kind = backup::Kind::Sram()
+    backup::clear_vector_to(emulator.memory.backup, 255)
+    emulator.memory.backup[291] = 90
+    let saved = backup::save_backup(path, emulator.memory)
+    if saved != 0 {
+        return 30
+    }
+    emulator.memory.backup[291] = 0
+    let loaded = backup::load(path, emulator.memory)
+    if loaded != 0 {
+        return 31
+    }
+    if emulator.memory.backup[291] != 90 {
+        return 32
+    }
+    emulator.memory.save_kind = backup::Kind::Absent()
+    emulator.memory.backup[291] = 0
+    let detected = backup::load(path, emulator.memory)
+    if detected != 0 {
+        return 33
+    }
+    if emulator.memory.save_kind != backup::Kind::Sram() {
+        return 34
+    }
+    if emulator.memory.backup[291] != 90 {
+        return 35
+    }
+    return 0
+}

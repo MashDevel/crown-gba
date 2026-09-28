@@ -1,0 +1,238 @@
+fn test_display_timing(emulator: write emulator::State) -> u32 {
+    emulator.devices = devices::new()
+    emulator.ppu = video::new()
+    memory::io_store16(emulator.memory, 4, 304)
+    memory::io_store16(emulator.memory, 514, 0)
+    devices::step(emulator, 1005)
+    if emulator.devices.in_hblank {
+        return 340
+    }
+    devices::step(emulator, 1)
+    if emulator.devices.in_hblank == false {
+        return 61
+    }
+    if memory::io_read16(emulator.memory, 4) & 2 == 0 {
+        return 62
+    }
+    if memory::io_read16(emulator.memory, 514) & 2 == 0 {
+        return 63
+    }
+    devices::step(emulator, 226)
+    if emulator.devices.in_hblank {
+        return 64
+    }
+    if emulator.devices.vcount != 1 {
+        return 65
+    }
+    if memory::io_read16(emulator.memory, 4) & 4 == 0 {
+        return 66
+    }
+    if memory::io_read16(emulator.memory, 514) & 4 == 0 {
+        return 67
+    }
+    return 0
+}
+
+fn test_dma_registers(emulator: write emulator::State) -> u32 {
+    emulator.devices = devices::new()
+    bus::write32(emulator, 67109040, 4294923896)
+    if memory::io_read32(emulator.memory, 176) != 134174328 {
+        return 160
+    }
+    bus::write16(emulator, 67109072, 65535)
+    if memory::io_read16(emulator.memory, 208) != 16383 {
+        return 161
+    }
+    bus::write16(emulator, 67109050, 45056)
+    if memory::io_read16(emulator.memory, 186) >> 12 & 3 != 0 {
+        return 162
+    }
+    bus::write32(emulator, 67109056, 67109024)
+    bus::write16(emulator, 67109062, 45056)
+    let fifo_control = memory::io_read16(emulator.memory, 198)
+    if fifo_control & 1536 != 1536 {
+        return 163
+    }
+    if fifo_control >> 5 & 3 != 2 {
+        return 164
+    }
+    return 0
+}
+
+fn test_hblank_dma_block(emulator: write emulator::State) -> u32 {
+    emulator.devices = devices::new()
+    memory::io_store16(emulator.memory, 0, 0)
+    memory::write16(emulator.memory, 33554432, 4660)
+    memory::write16(emulator.memory, 117440512, 0)
+    bus::write32(emulator, 67109040, 33554432)
+    bus::write32(emulator, 67109044, 117440512)
+    bus::write16(emulator, 67109048, 1)
+    bus::write16(emulator, 67109050, 40960)
+    dma::transfer(emulator, 0)
+    if memory::read16(emulator.memory, emulator.cartridge, 117440512) != 0 {
+        return 165
+    }
+    if memory::io_read16(emulator.memory, 186) & 32768 != 0 {
+        return 166
+    }
+    return 0
+}
+
+fn test_dma_timing_masks(emulator: write emulator::State) -> u32 {
+    emulator.devices = devices::new()
+    bus::write16(emulator, 67109050, 32768)
+    if emulator.devices.dma_timing[0] != 1 {
+        return 327
+    }
+    bus::write16(emulator, 67109062, 36864)
+    if emulator.devices.dma_timing[1] != 2 {
+        return 328
+    }
+    bus::write16(emulator, 67109074, 40960)
+    if emulator.devices.dma_timing[2] != 4 {
+        return 329
+    }
+    bus::write16(emulator, 67109062, 0)
+    if emulator.devices.dma_timing[1] != 0 {
+        return 330
+    }
+    dma::process_timing(emulator, 0)
+    if emulator.devices.dma_timing[0] != 0 {
+        return 331
+    }
+    return 0
+}
+
+fn test_dma_elapsed_cycles(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    memory::write16(emulator.memory, 67108996, 128)
+    memory::write16(emulator.memory, 67109120, 0)
+    memory::write16(emulator.memory, 67109122, 128)
+    memory::write32(emulator.memory, 33554432, 287454020)
+    bus::write32(emulator, 67109040, 33554432)
+    bus::write32(emulator, 67109044, 50331648)
+    bus::write16(emulator, 67109048, 256)
+    bus::write16(emulator, 67109050, 33792)
+    let elapsed = devices::step(emulator, 1)
+    if elapsed < 512 {
+        return 167
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 50331648) != 287454020 {
+        return 168
+    }
+    if emulator.audio.sample_count != usize.from(elapsed / 512) {
+        return 169
+    }
+    if emulator.audio.channel_clock != u64.from(elapsed % 512) {
+        return 323
+    }
+    if emulator.memory.timer_counter[0] != u16.from(elapsed) {
+        return 324
+    }
+    if emulator.devices.scanline_cycles != elapsed % 1232 {
+        return 325
+    }
+    if emulator.devices.vcount != u16.from(elapsed / 1232) {
+        return 326
+    }
+    bios::hard_reset(emulator)
+    return 0
+}
+
+fn test_quiet_device_advance(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    audio::write_master(emulator.audio, 128)
+    timers::timer_write_register(emulator.memory, 67109120, 0)
+    timers::timer_write_register(emulator.memory, 67109122, 128)
+    if devices::can_advance_quiet(emulator, 10) == false {
+        return 332
+    }
+    let elapsed = devices::step(emulator, 10)
+    if elapsed != 10 {
+        return 333
+    }
+    if emulator.memory.timer_counter[0] != 10 {
+        return 334
+    }
+    if emulator.devices.scanline_cycles != 10 {
+        return 335
+    }
+    if emulator.audio.frame_clock != 10 {
+        return 336
+    }
+    if emulator.audio.channel_clock != 10 {
+        return 337
+    }
+    if emulator.audio.sample_clock != 10 {
+        return 338
+    }
+    if devices::can_advance_quiet(emulator, 502) {
+        return 339
+    }
+    bios::hard_reset(emulator)
+    return test_poll_loops()
+}
+
+fn test_pending_audio_device_advance(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    if devices::can_advance_quiet(emulator, 1) == false {
+        return 430
+    }
+    memory::write16(emulator.memory, 67108996, 128)
+    if devices::can_advance_quiet(emulator, 1) {
+        return 431
+    }
+    if devices::step(emulator, 1) != 1 {
+        return 432
+    }
+    if audio::master_enabled(emulator.audio) == false {
+        return 433
+    }
+    if emulator.memory.audio_events.length() != 0 {
+        return 434
+    }
+    bios::hard_reset(emulator)
+    return 0
+}
+
+fn test_halted_device_advance(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    emulator.cpu.halted = true
+    let video = devices::step_halted(emulator)
+    if video != 1006 {
+        return 419
+    }
+    if emulator.devices.in_hblank == false {
+        return 420
+    }
+    if emulator.cpu.halted == false {
+        return 421
+    }
+    bios::hard_reset(emulator)
+    audio::write_master(emulator.audio, 128)
+    emulator.audio.sample_clock = 500
+    emulator.cpu.halted = true
+    let audio = devices::step_halted(emulator)
+    if audio != 12 {
+        return 422
+    }
+    if emulator.audio.sample_count != 1 {
+        return 423
+    }
+    bios::hard_reset(emulator)
+    memory::io_store16(emulator.memory, 512, 1)
+    memory::io_store16(emulator.memory, 514, 1)
+    emulator.cpu.halted = true
+    let wake = devices::step_halted(emulator)
+    if wake != 0 {
+        return 424
+    }
+    if emulator.cpu.halted {
+        return 425
+    }
+    if emulator.devices.scanline_cycles != 0 {
+        return 426
+    }
+    bios::hard_reset(emulator)
+    return 0
+}

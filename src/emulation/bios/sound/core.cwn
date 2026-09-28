@@ -1,0 +1,47 @@
+module bios {
+    module sound {
+        fn area(emulator: write emulator::State) -> u32 {
+            return memory::read32(emulator.memory, emulator.cartridge, bios::sound::WORK_AREA_POINTER)
+        }
+
+        fn branch_target(cpu: write cpu::State, target: u32) -> bool {
+            if target == 0 {
+                return false
+            }
+            cpu::set_thumb(cpu, target & 1 != 0)
+            cpu::write_register(cpu, cpu::PC, target)
+            return true
+        }
+
+        fn call_target(cpu: write cpu::State, target: u32) -> bool {
+            if target == 0 {
+                return false
+            }
+            var return_address = cpu.registers[cpu::PC]
+            if cpu::thumb(cpu) {
+                return_address = return_address | 1
+            }
+            cpu.registers[cpu::LR] = return_address
+            return branch_target(cpu, target)
+        }
+
+        fn area_active(emulator: write emulator::State, area: u32) -> bool {
+            if area == 0 {
+                return false
+            }
+            let identifier = memory::read32(emulator.memory, emulator.cartridge, area)
+            return identifier == bios::sound::DRIVER_READY
+        }
+
+        fn clear_channels(emulator: write emulator::State) -> void {
+            audio::disable_all(emulator.audio)
+            var index: usize = 32
+            while index <= 37 {
+                emulator.audio.registers[index] = 0
+                emulator.memory.io[audio::PULSE1_SWEEP + index] = 0
+                index = index + 1
+            }
+            return
+        }
+    }
+}

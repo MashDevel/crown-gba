@@ -1,0 +1,4 @@
+[package]
+name = "gba_crown_core_tests"
+sources = ["../../src", "../../../lang/components/library/src", "../../../lang/components/library/platform/src", "../../../lang/components/library/integrations/src", "."]
+exclude = ["../../src/platform", "../../src/frontend/command.cwn", "../../src/frontend/native/run.macos.cwn", "../../src/frontend/native/run.linux.cwn", "../../src/frontend/screenshot.cwn", "../../src/main.cwn"]

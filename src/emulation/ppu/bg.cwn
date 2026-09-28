@@ -1,0 +1,175 @@
+module video {
+    struct TextLine {
+        control: u16
+        size: usize
+        width_mask: usize
+        tile_y: usize
+        pixel_y: usize
+        scroll_x: usize
+        mosaic_x: usize
+        screen_base: usize
+        character_base: usize
+        priority: u8
+        order: u8
+        cached_tile_x: usize
+        cached_entry: u16
+    }
+
+    fn render_text_backgrounds(
+        emulator: write emulator::State,
+        line: usize,
+        count: usize
+    ) -> void {
+        let control = memory::io_read16(emulator.memory, video::CONTROL)
+        var background: usize = 0
+        while background < count {
+            if control &(BACKGROUND_ENABLE << u16.from(background)) != 0 {
+                var text_line = text_line(emulator.memory, background, line)
+                render_text_line(emulator, text_line, line)
+            }
+            background = background.wrapping_add(1)
+        }
+        return
+    }
+
+    fn render_text_line(emulator: write emulator::State, text_line: write TextLine, line: usize) -> void {
+        let row = line.wrapping_mul(WIDTH)
+        var x: usize = 0
+        while x < WIDTH {
+            let pixel = text_pixel(emulator.memory, text_line, x)
+            var repeated: usize = 0
+            while repeated < text_line.mosaic_x {
+                if x >= WIDTH {
+                    break
+                }
+                let position = PixelPosition {
+                    index: row + x, x: x
+                }
+                commit_pixel(emulator.ppu, position, pixel)
+                repeated = repeated.wrapping_add(1)
+                x = x.wrapping_add(1)
+            }
+        }
+    }
+
+    fn text_line(memory: memory::State, background: usize, line: usize) -> TextLine {
+        let control = memory::io_read16(memory, video::BACKGROUND_CONTROL + background * 2)
+        let size = usize.from(control >> BACKGROUND_SIZE_SHIFT & BACKGROUND_SIZE_MASK)
+        let scroll_y = usize.from(memory::io_read16(memory, video::BACKGROUND_SCROLL + 2 + background * 4) & BACKGROUND_SCROLL_MASK)
+        var mosaic_x: usize = 1
+        var mosaic_y: usize = 1
+        if control & BACKGROUND_MOSAIC != 0 {
+            let mosaic = memory::io_read16(memory, video::MOSAIC)
+            mosaic_x = usize.from(mosaic & 15) + 1
+            mosaic_y = usize.from(mosaic >> 4 & 15) + 1
+        }
+        var width_mask = TEXT_SMALL_MASK
+        var height_mask = TEXT_SMALL_MASK
+        if size == 1 {
+            width_mask = TEXT_LARGE_MASK
+        }
+        if size == 2 {
+            height_mask = TEXT_LARGE_MASK
+        }
+        if size == 3 {
+            width_mask = TEXT_LARGE_MASK
+            height_mask = TEXT_LARGE_MASK
+        }
+        let sample_y = line - line % mosaic_y
+        let world_y = (sample_y + scroll_y) & height_mask
+        return TextLine {
+            control: control
+            size: size
+            width_mask: width_mask
+            tile_y: world_y >> 3
+            pixel_y: world_y & 7
+            scroll_x: usize.from(memory::io_read16(memory, video::BACKGROUND_SCROLL + background * 4) & BACKGROUND_SCROLL_MASK)
+            mosaic_x: mosaic_x
+            screen_base: usize.from(control >> 8 & 31) * SCREEN_BLOCK_BYTES
+            character_base: usize.from(control >> 2 & 3) * CHARACTER_BLOCK_BYTES
+            priority: u8.from(control & BACKGROUND_PRIORITY_MASK)
+            order: u8.from(background + 1)
+            cached_tile_x: 18446744073709551615
+            cached_entry: 0
+        }
+    }
+
+    fn text_pixel(memory: memory::State, line: write TextLine, x: usize) -> LayerPixel {
+        let world_x = x.wrapping_add(line.scroll_x) & line.width_mask
+        let entry = text_entry(memory, line, world_x >> 3)
+        var pixel_x = world_x & 7
+        var pixel_y = line.pixel_y
+        if entry & TILE_FLIP_X != 0 {
+            pixel_x = 7 - pixel_x
+        }
+        if entry & TILE_FLIP_Y != 0 {
+            pixel_y = 7 - pixel_y
+        }
+        let tile = usize.from(entry & TILE_INDEX_MASK)
+        var palette_index: usize = 0
+        if line.control & BACKGROUND_256_COLOR != 0 {
+            let base = line.character_base.wrapping_add(tile.wrapping_mul(TILE_8BPP_BYTES))
+            let row_offset = pixel_y.wrapping_mul(TILE_SIDE)
+            let row = base.wrapping_add(row_offset)
+            let address = row.wrapping_add(pixel_x)
+            palette_index = usize.from(memory.vram[address])
+        } else {
+            let base = line.character_base.wrapping_add(tile.wrapping_mul(TILE_4BPP_BYTES))
+            let row_offset = pixel_y.wrapping_mul(4)
+            let row = base.wrapping_add(row_offset)
+            let address = row.wrapping_add(pixel_x / 2)
+            var packed: u8 = 0
+            packed = memory.vram[address]
+            palette_index = usize.from(packed >> u8.from((pixel_x & 1) * 4) & 15)
+            if palette_index == 0 {
+                return empty_text_pixel(line)
+            }
+            let palette = usize.from(entry >> 12)
+            let palette_offset = palette.wrapping_mul(PALETTE_BANK_COLORS)
+            palette_index = palette_index.wrapping_add(palette_offset)
+        }
+        return LayerPixel {
+            visible: palette_index != 0
+            color: palette_color(memory, palette_index, false)
+            priority: line.priority
+            order: line.order
+            layer: line.order - 1
+            semi: false
+        }
+    }
+
+    fn empty_text_pixel(line: TextLine) -> LayerPixel {
+        return LayerPixel {
+            visible: false
+            color: 0
+            priority: line.priority
+            order: line.order
+            layer: line.order - 1
+            semi: false
+        }
+    }
+
+    fn text_entry(memory: memory::State, line: write TextLine, tile_x: usize) -> u16 {
+        if tile_x != line.cached_tile_x {
+            var blocks_wide: usize = 1
+            if line.size == 1 {
+                blocks_wide = 2
+            }
+            if line.size == 3 {
+                blocks_wide = 2
+            }
+            let block_x = tile_x / 32
+            let block_y = line.tile_y / 32
+            let block_row = block_y.wrapping_mul(blocks_wide)
+            let block = block_x.wrapping_add(block_row)
+            let tile_y = line.tile_y & 31
+            let index_row = tile_y.wrapping_mul(32)
+            let index = index_row.wrapping_add(tile_x & 31)
+            let base = line.screen_base.wrapping_add(block.wrapping_mul(SCREEN_BLOCK_BYTES))
+            let offset = base.wrapping_add(index.wrapping_mul(2))
+            line.cached_entry = memory::vector_read16(memory.vram, offset)
+            line.cached_tile_x = tile_x
+        }
+        return line.cached_entry
+    }
+}

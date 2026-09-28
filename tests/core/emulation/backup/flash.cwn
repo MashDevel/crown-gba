@@ -1,0 +1,137 @@
+fn flash_command(memory: write memory::State, command: read u8) -> void {
+    memory::write8(memory, memory::SAVE_START + 0x5555, 0xaa)
+    memory::write8(memory, memory::SAVE_START + 0x2aaa, 0x55)
+    memory::write8(memory, memory::SAVE_START + 0x5555, command)
+    return
+}
+
+fn test_backup(emulator: write emulator::State) -> u32 {
+    emulator.memory.save_kind = backup::Kind::Sram()
+    memory::write8(emulator.memory, memory::SAVE_START + 123, 91)
+    if memory::read8(emulator.memory, emulator.cartridge, memory::SAVE_START + 123) != 91 {
+        return 10
+    }
+    emulator.memory.save_kind = backup::Kind::Flash128()
+    backup::clear_vector_to(emulator.memory.backup, 255)
+    flash_command(emulator.memory, backup::FLASH_IDENTIFY)
+    if memory::read8(emulator.memory, emulator.cartridge, memory::SAVE_START) != 98 {
+        return 11
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, memory::SAVE_START + 1) != 19 {
+        return 12
+    }
+    memory::write8(emulator.memory, memory::SAVE_START, backup::FLASH_RESET)
+    flash_command(emulator.memory, backup::FLASH_PROGRAM)
+    memory::write8(emulator.memory, memory::SAVE_START + 123, 90)
+    if memory::read8(emulator.memory, emulator.cartridge, memory::SAVE_START + 123) != 90 {
+        return 13
+    }
+    flash_command(emulator.memory, backup::FLASH_SELECT_BANK)
+    memory::write8(emulator.memory, memory::SAVE_START, 1)
+    if memory::read8(emulator.memory, emulator.cartridge, memory::SAVE_START + 123) != 255 {
+        return 14
+    }
+    flash_command(emulator.memory, backup::FLASH_PROGRAM)
+    memory::write8(emulator.memory, memory::SAVE_START + 123, 165)
+    if memory::read8(emulator.memory, emulator.cartridge, memory::SAVE_START + 123) != 165 {
+        return 15
+    }
+    return 0
+}
+
+fn test_flash_rejected_unlock(emulator: write emulator::State) -> u32 {
+    emulator.memory.save_kind = backup::Kind::Flash64()
+    emulator.memory.flash_state = backup::FlashState::Ready()
+    emulator.memory.flash_id = false
+    backup::flash_write(emulator.memory, 0x5554, 0xaa)
+    backup::flash_write(emulator.memory, 0x2aaa, 0x55)
+    backup::flash_write(emulator.memory, 0x5555, 0x90)
+    if emulator.memory.flash_id {
+        return 420
+    }
+    backup::flash_write(emulator.memory, 0x5555, 0xaa)
+    backup::flash_write(emulator.memory, 0x2aaa, 0x54)
+    backup::flash_write(emulator.memory, 0x5555, 0x90)
+    if emulator.memory.flash_id {
+        return 421
+    }
+    flash_command(emulator.memory, backup::FLASH_IDENTIFY)
+    if emulator.memory.flash_id == false {
+        return 422
+    }
+    backup::flash_write(emulator.memory, 0, backup::FLASH_RESET)
+    if emulator.memory.flash_id {
+        return 423
+    }
+    return 0
+}
+
+fn test_flash_payload(emulator: write emulator::State) -> u32 {
+    emulator.memory.save_kind = backup::Kind::Flash128()
+    emulator.memory.flash_bank = 0
+    emulator.memory.flash_state = backup::FlashState::Ready()
+    flash_command(emulator.memory, backup::FLASH_PROGRAM)
+    backup::flash_write(emulator.memory, 123, 0xf0)
+    if emulator.memory.backup[123] != 0xf0 {
+        return 424
+    }
+    if emulator.memory.flash_state != backup::FlashState::Ready() {
+        return 425
+    }
+    flash_command(emulator.memory, backup::FLASH_SELECT_BANK)
+    backup::flash_write(emulator.memory, 1, 1)
+    if emulator.memory.flash_bank != 0 {
+        return 426
+    }
+    flash_command(emulator.memory, backup::FLASH_SELECT_BANK)
+    backup::flash_write(emulator.memory, 0, 3)
+    if emulator.memory.flash_bank != 1 {
+        return 427
+    }
+    emulator.memory.save_kind = backup::Kind::Flash64()
+    flash_command(emulator.memory, backup::FLASH_SELECT_BANK)
+    backup::flash_write(emulator.memory, 0, 0)
+    if emulator.memory.flash_bank != 1 {
+        return 428
+    }
+    return 0
+}
+
+fn test_flash_erase(emulator: write emulator::State) -> u32 {
+    emulator.memory.save_kind = backup::Kind::Flash128()
+    emulator.memory.flash_bank = 1
+    emulator.memory.flash_state = backup::FlashState::Ready()
+    backup::clear_vector_to(emulator.memory.backup, 0)
+    flash_command(emulator.memory, backup::FLASH_ERASE)
+    backup::flash_write(emulator.memory, 0x5555, 0xaa)
+    backup::flash_write(emulator.memory, 0x2aaa, 0x55)
+    backup::flash_write(emulator.memory, 0x1234, 0x30)
+    let start = backup::FLASH_BANK_SIZE + 0x1000
+    if emulator.memory.backup[start - 1] != 0 {
+        return 429
+    }
+    if emulator.memory.backup[start] != 255 {
+        return 430
+    }
+    if emulator.memory.backup[start + 0xfff] != 255 {
+        return 431
+    }
+    if emulator.memory.backup[start + 0x1000] != 0 {
+        return 432
+    }
+    flash_command(emulator.memory, backup::FLASH_ERASE)
+    flash_command(emulator.memory, backup::FLASH_ERASE_CHIP)
+    for index in 0..emulator.memory.backup.length() {
+        if emulator.memory.backup[index] != 255 {
+            return 433
+        }
+    }
+    return 0
+}
+
+fn test_flash_protocol(emulator: write emulator::State) -> u32 {
+    let cases = [test_flash_rejected_unlock, test_flash_payload, test_flash_erase]
+    loan read cases as values {
+        return run_emulator_cases(emulator, values)
+    }
+}

@@ -1,0 +1,152 @@
+module video {
+    const CONTROL: usize = 0x0
+    const GREEN_SWAP: usize = 0x2
+    const BACKGROUND_CONTROL: usize = 0x8
+    const BACKGROUND_SCROLL: usize = 0x10
+    const AFFINE_2: usize = 0x20
+    const REFERENCE_2: usize = 0x28
+    const AFFINE_3: usize = 0x30
+    const REFERENCE_3: usize = 0x38
+    const WINDOW_0_H: usize = 0x40
+    const WINDOW_1_H: usize = 0x42
+    const WINDOW_0_V: usize = 0x44
+    const WINDOW_1_V: usize = 0x46
+    const WINDOW_INSIDE: usize = 0x48
+    const WINDOW_OUTSIDE: usize = 0x4a
+    const MOSAIC: usize = 0x4c
+    const BLEND_CONTROL: usize = 0x50
+    const BLEND_ALPHA: usize = 0x52
+    const BLEND_BRIGHTNESS: usize = 0x54
+    const REGISTER_END: usize = 0x056
+
+    const MODE_MASK: u16 = 7
+    const MODE_TEXT: u16 = 0
+    const MODE_MIXED: u16 = 1
+    const MODE_AFFINE: u16 = 2
+    const MODE_DIRECT: u16 = 3
+    const MODE_INDEXED: u16 = 4
+    const MODE_DIRECT_SMALL: u16 = 5
+    const FRAME_SELECT: u16 = 1 << 4
+    const HBLANK_OBJECT_ACCESS: u16 = 1 << 5
+    const OBJECT_MAPPING_LINEAR: u16 = 1 << 6
+    const FORCED_BLANK: u16 = 1 << 7
+    const BACKGROUND_ENABLE: u16 = 1 << 8
+    const BITMAP_ENABLE: u16 = BACKGROUND_ENABLE << 2
+    const OBJECT_ENABLE: u16 = 1 << 12
+    const WINDOW_0_ENABLE: u16 = 1 << 13
+    const WINDOW_1_ENABLE: u16 = 1 << 14
+    const OBJECT_WINDOW_ENABLE: u16 = 1 << 15
+    const BACKGROUND_MOSAIC: u16 = 1 << 6
+    const BACKGROUND_256_COLOR: u16 = 1 << 7
+    const BACKGROUND_WRAP: u16 = 1 << 13
+    const BACKGROUND_PRIORITY_MASK: u16 = 3
+    const BACKGROUND_SIZE_MASK: u16 = 3
+    const BACKGROUND_SIZE_SHIFT: u16 = 14
+    const BACKGROUND_SCROLL_MASK: u16 = 0x1ff
+    const TILE_INDEX_MASK: u16 = 0x3ff
+    const TILE_FLIP_X: u16 = 1 << 10
+    const TILE_FLIP_Y: u16 = 1 << 11
+    const AFFINE_REGISTER_STRIDE: usize = 16
+    const AFFINE_REFERENCE_COUNT: usize = 4
+    const STATUS_READ_ONLY: u16 = VBLANK | HBLANK | VCOUNTER
+
+    fn write8(memory: write memory::State, offset: usize, value: u8) -> bool {
+        if offset >= REGISTER_END {
+            return false
+        }
+        let aligned = offset & 18446744073709551614
+        let current = memory::io_read16(memory, aligned)
+        var combined = current & 65280 | u16.from(value)
+        if offset & 1 != 0 {
+            combined = current & 255 | u16.from(value) << 8
+        }
+        return write16(memory, aligned, combined)
+    }
+
+    fn write16(memory: write memory::State, offset: usize, value: u16) -> bool {
+        if offset == CONTROL {
+            memory::io_store16(memory, offset, value);
+            return true
+        }
+        if offset == GREEN_SWAP {
+            memory::io_store16(memory, offset, value & 1);
+            return true
+        }
+        if offset == STATUS {
+            let status = memory::io_read16(memory, offset)
+            memory::io_store16(memory, offset, status & STATUS_READ_ONLY | value & ~STATUS_READ_ONLY)
+            return true
+        }
+        if offset == VCOUNT {
+            return true
+        }
+        let mask = match register_write_mask(offset) {
+            Some(mask_value) => mask_value
+            None => {
+                return false
+            }
+        }
+        memory::io_store16(memory, offset, value & mask)
+        true
+    }
+
+    fn register_write_mask(offset: usize) -> Option<u16> {
+        if offset >= BLEND_CONTROL && offset <= BLEND_BRIGHTNESS && offset & 1 == 0 {
+            return Some(65535)
+        }
+        if offset < BACKGROUND_CONTROL || offset > MOSAIC {
+            return None()
+        }
+        if offset == BACKGROUND_SCROLL - 1 || offset == AFFINE_2 - 1 {
+            return None()
+        }
+        if offset >= BACKGROUND_SCROLL && offset <= AFFINE_2 - 2 {
+            return Some(BACKGROUND_SCROLL_MASK)
+        }
+        Some(65535)
+    }
+
+    fn update_affine_reference(memory: write memory::State, offset: usize) -> void {
+        let index = affine_reference_index(offset)
+        if index >= AFFINE_REFERENCE_COUNT {
+            return
+        }
+        if memory::io_read16(memory, video::VCOUNT) >= u16.from(HEIGHT) {
+            return
+        }
+        let base = affine_reference_offset(index)
+        memory.affine_references[index] = signed28(memory::io_read32(memory, base))
+        return
+    }
+
+    fn affine_reference_index(offset: usize) -> usize {
+        if offset >= REFERENCE_2 {
+            if offset <= REFERENCE_2 + 6 {
+                return (offset - REFERENCE_2) / 4
+            }
+        }
+        if offset >= REFERENCE_3 {
+            if offset <= REFERENCE_3 + 6 {
+                return 2 +(offset - REFERENCE_3) / 4
+            }
+        }
+        return AFFINE_REFERENCE_COUNT
+    }
+
+    fn affine_reference_offset(index: usize) -> usize {
+        if index < 2 {
+            return REFERENCE_2 + index * 4
+        }
+        return REFERENCE_3 +(index - 2) * 4
+    }
+
+    fn reload_affine_references(memory: write memory::State) -> void {
+        var index: usize = 0
+        while index < AFFINE_REFERENCE_COUNT {
+            let offset = affine_reference_offset(index)
+            memory.affine_references[index] = signed28(memory::io_read32(memory, offset))
+            index = index.wrapping_add(1)
+        }
+        return
+    }
+}

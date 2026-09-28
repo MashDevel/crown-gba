@@ -1,0 +1,43 @@
+module platform {
+    extern "c" {
+        fn bedrock_audio_available() -> bool = "crown_audio_available"
+        fn bedrock_audio_queued() -> usize = "crown_audio_queued"
+        fn bedrock_audio_write(samples: RawPtr<f32>, length: usize, rate: u32) -> usize = "crown_audio_write"
+    }
+
+    struct BedrockAudio {
+        available: bool, ring: app::SampleRing, output: Vec<f32>
+    }
+
+    fn bedrock_audio() -> BedrockAudio {
+        var output = Vec<f32>.with_capacity(app::AUDIO_CAPACITY)
+        for index in 0..app::AUDIO_CAPACITY {
+            index;
+            output.push(0.0)
+        }
+        unsafe {
+            return BedrockAudio {
+                available: bedrock_audio_available(), ring: app::sample_ring(), output: move output
+            }
+        }
+    }
+
+    fn submit_bedrock_audio(audio: write BedrockAudio, samples: Vec<i32>, rate: u32) -> u32 {
+        if audio.available == false {
+            return 0
+        }
+        if app::ring_push(audio.ring, samples, rate) == false {
+            return 99
+        }
+        let count = app::ring_frames(audio.ring) * 2
+        for index in 0..count {
+            audio.output[index] = app::ring_sample(audio.ring)
+        }
+        unsafe {
+            if bedrock_audio_write(audio.output.as_raw(), count, app::OUTPUT_RATE) != count {
+                return 99
+            }
+        }
+        return 0
+    }
+}

@@ -1,0 +1,51 @@
+module bios {
+    const BIOS_CHECKSUM: u32 = 0xbaae187f
+    module call {
+        const SOFT_RESET: u32 = 0x00
+        const RAM_RESET: u32 = 0x01
+        const HALT: u32 = 0x02
+        const STOP: u32 = 0x03
+        const INTERRUPT_WAIT: u32 = 0x04
+        const VBLANK_WAIT: u32 = 0x05
+        const DIVIDE: u32 = 0x06
+        const DIVIDE_ARM: u32 = 0x07
+        const SQUARE_ROOT: u32 = 0x08
+        const ARCTANGENT: u32 = 0x09
+        const ARCTANGENT_2: u32 = 0x0a
+        const CPU_SET: u32 = 0x0b
+        const CPU_FAST_SET: u32 = 0x0c
+        const CHECKSUM: u32 = 0x0d
+        const BACKGROUND_AFFINE: u32 = 0x0e
+        const OBJECT_AFFINE: u32 = 0x0f
+        const BIT_UNPACK: u32 = 0x10
+        const LZ77_RAM: u32 = 0x11
+        const LZ77_VRAM: u32 = 0x12
+        const HUFFMAN: u32 = 0x13
+        const RUN_LENGTH_RAM: u32 = 0x14
+        const RUN_LENGTH_VRAM: u32 = 0x15
+        const DIFF8_RAM: u32 = 0x16
+        const DIFF8_VRAM: u32 = 0x17
+        const DIFF16: u32 = 0x18
+        const SOUND_BIAS: u32 = 0x19
+        const SOUND_INIT: u32 = 0x1a
+        const SOUND_MODE: u32 = 0x1b
+        const SOUND_MAIN: u32 = 0x1c
+        const SOUND_VSYNC: u32 = 0x1d
+        const SOUND_CLEAR: u32 = 0x1e
+        const MIDI_FREQUENCY: u32 = 0x1f
+        const MUSIC_OPEN: u32 = 0x20
+        const MUSIC_START: u32 = 0x21
+        const MUSIC_STOP: u32 = 0x22
+        const MUSIC_CONTINUE: u32 = 0x23
+        const MUSIC_FADE_OUT: u32 = 0x24
+        const MULTIBOOT: u32 = 0x25
+        const HARD_RESET: u32 = 0x26
+        const CUSTOM_HALT: u32 = 0x27
+        const SOUND_VSYNC_OFF: u32 = 0x28
+        const SOUND_VSYNC_ON: u32 = 0x29
+        const SOUND_JUMP_LIST: u32 = 0x2a
+        const SOUND_JUMP_FIRST: u32 = 0x2b
+        const SOUND_JUMP_LAST: u32 = 0x4e
+        const DEBUG_PRINT: u32 = 0xfc
+    }
+}

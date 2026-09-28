@@ -1,0 +1,187 @@
+module video {
+    struct AffineConfig {
+        priority: u8
+        order: u8
+        character_base: usize
+        screen_base: usize
+        dimension: i32
+        wrap: bool
+        mosaic_x: usize
+        line_x: i32
+        line_y: i32
+        pa: i32
+        pc: i32
+    }
+
+    fn render_affine_backgrounds(
+        emulator: write emulator::State,
+        line: usize,
+        count: usize
+    ) -> void {
+        let control = memory::io_read16(emulator.memory, video::CONTROL)
+        let row = line.wrapping_mul(WIDTH)
+        var background: usize = 2
+        while background < 2 + count {
+            if control &(BACKGROUND_ENABLE << u16.from(background)) != 0 {
+                let config = affine_config(emulator.memory, background, line)
+                var x: usize = 0
+                while x < WIDTH {
+                    let pixel = affine_pixel(emulator.memory, config, x)
+                    let position = PixelPosition {
+                        index: row + x, x: x
+                    }
+                    commit_pixel(emulator.ppu, position, pixel)
+                    x = x.wrapping_add(1)
+                }
+            }
+            background = background.wrapping_add(1)
+        }
+        return
+    }
+
+    fn affine_pixel(memory: memory::State, config: AffineConfig, x: usize) -> LayerPixel {
+        let effective_x = x - x % config.mosaic_x
+        let offset_x = config.pa.wrapping_mul(i32.from(effective_x))
+        let offset_y = config.pc.wrapping_mul(i32.from(effective_x))
+        let world_x = config.line_x.wrapping_add(offset_x) >> 8
+        let world_y = config.line_y.wrapping_add(offset_y) >> 8
+        let normalized_x = affine_coordinate(world_x, config.dimension, config.wrap)
+        let normalized_y = affine_coordinate(world_y, config.dimension, config.wrap)
+        if normalized_x < 0 {
+            return empty_affine_pixel(config)
+        }
+        if normalized_y < 0 {
+            return empty_affine_pixel(config)
+        }
+        let sample_x = usize.from(normalized_x)
+        let sample_y = usize.from(normalized_y)
+        let tiles_wide = usize.from(config.dimension) / 8
+        let tile_y = sample_y / 8
+        let map_offset = tile_y.wrapping_mul(tiles_wide)
+        let map_row = config.screen_base.wrapping_add(map_offset)
+        let map = map_row.wrapping_add(sample_x / 8)
+        var tile: usize = 0
+        tile = usize.from(memory.vram[map])
+        let tile_row = config.character_base.wrapping_add(tile.wrapping_mul(TILE_8BPP_BYTES))
+        let pixel_y = sample_y % 8
+        let pixel_offset = pixel_y.wrapping_mul(TILE_SIDE)
+        let pixel_row = tile_row.wrapping_add(pixel_offset)
+        let address = pixel_row.wrapping_add(sample_x % 8)
+        var palette_index: usize = 0
+        palette_index = usize.from(memory.vram[address])
+        return LayerPixel {
+            visible: palette_index != 0
+            color: palette_color(memory, palette_index, false)
+            priority: config.priority
+            order: config.order
+            layer: config.order - 1
+            semi: false
+        }
+    }
+
+    fn affine_config(memory: memory::State, background: usize, line: usize) -> AffineConfig {
+        let index = background - 2
+        let control = memory::io_read16(memory, video::BACKGROUND_CONTROL + background * 2)
+        let matrix: usize = AFFINE_2 + index * AFFINE_REGISTER_STRIDE
+        let mosaic = memory::io_read16(memory, video::MOSAIC)
+        var mosaic_x: usize = 1
+        var mosaic_y: usize = 1
+        if control & BACKGROUND_MOSAIC != 0 {
+            mosaic_x = usize.from(mosaic & 15) + 1
+            mosaic_y = usize.from(mosaic >> 4 & 15) + 1
+        }
+        let effective_line = line - line % mosaic_y
+        let pb = signed16(memory::io_read16(memory, matrix + 2))
+        let pd = signed16(memory::io_read16(memory, matrix + 6))
+        let delta = i32.from(effective_line) - i32.from(line)
+        let reference_x = memory.affine_references[index * 2]
+        let reference_y = memory.affine_references[index * 2 + 1]
+        let line_x = reference_x.wrapping_add(pb.wrapping_mul(delta))
+        let line_y = reference_y.wrapping_add(pd.wrapping_mul(delta))
+        return AffineConfig {
+            priority: u8.from(control & BACKGROUND_PRIORITY_MASK)
+            order: u8.from(background + 1)
+            character_base: usize.from(control >> 2 & 3) * CHARACTER_BLOCK_BYTES
+            screen_base: usize.from(control >> 8 & 31) * SCREEN_BLOCK_BYTES
+            dimension: 128 << i32.from(control >> BACKGROUND_SIZE_SHIFT & BACKGROUND_SIZE_MASK)
+            wrap: control & BACKGROUND_WRAP != 0
+            mosaic_x: mosaic_x
+            line_x: line_x
+            line_y: line_y
+            pa: signed16(memory::io_read16(memory, matrix))
+            pc: signed16(memory::io_read16(memory, matrix + 4))
+        }
+    }
+
+    fn signed16(value: u16) -> i32 {
+        return i32.from(i16.from_bits(value))
+    }
+
+    fn signed28(value: u32) -> i32 {
+        return i32.from_bits(bits::sign_extend_u32(value & 0x0fffffff, 28))
+    }
+
+    fn affine_coordinate(value: i32, dimension: i32, wrap: bool) -> i32 {
+        if wrap {
+            var normalized = value % dimension
+            if normalized < 0 {
+                normalized = normalized + dimension
+            }
+            return normalized
+        }
+        if value < 0 {
+            return -1
+        }
+        if value >= dimension {
+            return -1
+        }
+        return value
+    }
+
+    fn empty_affine_pixel(config: AffineConfig) -> LayerPixel {
+        return LayerPixel {
+            visible: false
+            color: 0
+            priority: config.priority
+            order: config.order
+            layer: config.order - 1
+            semi: false
+        }
+    }
+
+    fn advance_affine_references(memory: write memory::State, control: u16) -> void {
+        if control & FORCED_BLANK != 0 {
+            return
+        }
+        let mode = control & MODE_MASK
+        if mode == MODE_MIXED {
+            advance_affine_reference(memory, control, 0)
+        }
+        if mode == MODE_AFFINE {
+            advance_affine_reference(memory, control, 0)
+            advance_affine_reference(memory, control, 1)
+        }
+        if mode >= MODE_DIRECT {
+            if mode <= MODE_DIRECT_SMALL {
+                advance_affine_reference(memory, control, 0)
+            }
+        }
+        return
+    }
+
+    fn advance_affine_reference(memory: write memory::State, control: u16, index: usize) -> void {
+        let background = index + 2
+        if control &(BACKGROUND_ENABLE << u16.from(background)) == 0 {
+            return
+        }
+        let matrix: usize = AFFINE_2 + index * AFFINE_REGISTER_STRIDE
+        let x = index * 2
+        memory.affine_references[x] = memory.affine_references[x].wrapping_add(
+            signed16(memory::io_read16(memory, matrix + 2))
+        )
+        memory.affine_references[x + 1] = memory.affine_references[x + 1].wrapping_add(
+            signed16(memory::io_read16(memory, matrix + 6))
+        )
+        return
+    }
+}

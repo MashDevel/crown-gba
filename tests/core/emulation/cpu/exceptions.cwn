@@ -1,0 +1,264 @@
+fn test_cpu_exceptions(emulator: write emulator::State) -> u32 {
+    let cases = [test_initial_registers, test_arm_swi_entry, test_thumb_swi_entry, test_irq_and_bios_entry]
+    loan read cases as values {
+        return run_emulator_cases(emulator, values)
+    }
+}
+
+fn test_arm_swi_entry(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[15] = 134217732
+    let arm_status = emulator.cpu.cpsr
+    cpu::enter_swi(emulator.cpu)
+    if emulator.cpu.registers[15] != 8 {
+        return 88
+    }
+    if emulator.cpu.registers[14] != 134217728 {
+        return 89
+    }
+    if cpu::mode(emulator.cpu) != 19 {
+        return 90
+    }
+    if cpu::spsr(emulator.cpu, 19) != arm_status {
+        return 91
+    }
+    if cpu::flag(emulator.cpu, 7) == false {
+        return 92
+    }
+    0
+}
+
+fn test_thumb_swi_entry(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    cpu::set_thumb(emulator.cpu, true)
+    emulator.cpu.registers[15] = 134217730
+    let thumb_status = emulator.cpu.cpsr
+    cpu::enter_swi(emulator.cpu)
+    if emulator.cpu.registers[14] != 134217728 {
+        return 93
+    }
+    if cpu::spsr(emulator.cpu, 19) != thumb_status {
+        return 94
+    }
+    0
+}
+
+fn test_irq_and_bios_entry(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.registers[15] = 134217728
+    cpu::enter_irq(emulator.cpu)
+    if emulator.cpu.registers[15] != 24 {
+        return 95
+    }
+    if emulator.cpu.registers[14] != 134217724 {
+        return 96
+    }
+    if cpu::mode(emulator.cpu) != 18 {
+        return 97
+    }
+    emulator.cpu = cpu::new_bios_cpu()
+    if emulator.cpu.registers[15] != 0 {
+        return 98
+    }
+    if emulator.cpu.cpsr != 211 {
+        return 99
+    }
+    emulator.cpu = cpu::new()
+    0
+}
+
+fn test_bios_memory(emulator: write emulator::State) -> u32 {
+    emulator.memory.bios[0] = 120
+    emulator.memory.bios[1] = 86
+    emulator.memory.bios[2] = 52
+    emulator.memory.bios[3] = 18
+    if memory::read32(emulator.memory, emulator.cartridge, 0) != 305419896 {
+        return 100
+    }
+    return 0
+}
+
+fn test_bios_file(path: read TextView, emulator: write emulator::State) -> u32 {
+    let loaded = bios::load(path, emulator.memory)
+    if loaded != 0 {
+        return 101
+    }
+    if emulator.memory.bios_loaded == false {
+        return 102
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 0) != 3925868670 {
+        return 103
+    }
+    emulator.memory.bios_loaded = false
+    return 0
+}
+
+fn test_bios_execution(emulator: write emulator::State) -> u32 {
+    bytes::clear_vector(emulator.memory.bios)
+    emulator.memory.bios[0] = 7
+    emulator.memory.bios[1] = 0
+    emulator.memory.bios[2] = 160
+    emulator.memory.bios[3] = 227
+    emulator.memory.bios[4] = 0
+    emulator.memory.bios[5] = 0
+    emulator.memory.bios[6] = 0
+    emulator.memory.bios[7] = 239
+    emulator.memory.bios[8] = 9
+    emulator.memory.bios[9] = 16
+    emulator.memory.bios[10] = 160
+    emulator.memory.bios[11] = 227
+    emulator.memory.bios_loaded = true
+    emulator.cpu = cpu::new_bios_cpu()
+    emulator.devices = devices::new()
+    emulator::step(emulator)
+    if emulator.cpu.registers[0] != 7 {
+        return 104
+    }
+    if emulator.cpu.registers[15] != 4 {
+        return 105
+    }
+    emulator::step(emulator)
+    if emulator.cpu.registers[15] != 8 {
+        return 106
+    }
+    if emulator.cpu.registers[14] != 4 {
+        return 107
+    }
+    emulator::step(emulator)
+    if emulator.cpu.registers[1] != 9 {
+        return 108
+    }
+    emulator.memory.bios_loaded = false
+    emulator.cpu = cpu::new()
+    emulator.devices = devices::new()
+    return 0
+}
+
+fn test_bios_irq_execution(emulator: write emulator::State) -> u32 {
+    emulator.memory.bios_loaded = true
+    emulator.cpu = cpu::new()
+    emulator.devices = devices::new()
+    memory::io_store16(emulator.memory, 512, 1)
+    memory::io_store16(emulator.memory, 514, 1)
+    memory::io_store16(emulator.memory, 520, 1)
+    let cycles = emulator::step(emulator)
+    if cycles != 3 {
+        return 109
+    }
+    if emulator.cpu.registers[15] != 24 {
+        return 110
+    }
+    if cpu::mode(emulator.cpu) != 18 {
+        return 111
+    }
+    if emulator.devices.in_hle_irq {
+        return 112
+    }
+    emulator.memory.bios_loaded = false
+    emulator.cpu = cpu::new()
+    emulator.devices = devices::new()
+    memory::io_store16(emulator.memory, 512, 0)
+    memory::io_store16(emulator.memory, 514, 0)
+    memory::io_store16(emulator.memory, 520, 0)
+    return 0
+}
+
+fn test_hle_irq_return(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    cpu::set_thumb(emulator.cpu, true)
+    emulator.cpu.registers[15] = 33554688
+    emulator.cpu.registers[0] = 286331153
+    emulator.cpu.registers[1] = 572662306
+    emulator.cpu.registers[14] = 33554945
+    let original_sp = emulator.cpu.registers[13]
+    devices::start_hle_irq(emulator, 134217985)
+    emulator.cpu.registers[0] = 2779096485
+    emulator.cpu.registers[1] = 3065427638
+    emulator.cpu.registers[15] = 4294967292
+    let cycles = emulator::step(emulator)
+    if cycles != 14 {
+        return 113
+    }
+    if emulator.cpu.registers[15] != 33554688 {
+        return 114
+    }
+    if cpu::thumb(emulator.cpu) == false {
+        return 115
+    }
+    if emulator.cpu.registers[0] != 286331153 {
+        return 116
+    }
+    if emulator.cpu.registers[1] != 572662306 {
+        return 117
+    }
+    if emulator.cpu.registers[14] != 33554945 {
+        return 118
+    }
+    if emulator.cpu.registers[13] != original_sp {
+        return 119
+    }
+    if emulator.devices.in_hle_irq {
+        return 120
+    }
+    return 0
+}
+
+fn test_nested_hle_irq(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    cpu::set_thumb(emulator.cpu, true)
+    emulator.cpu.registers[15] = 33554688
+    let original_sp = emulator.cpu.registers[13]
+    devices::start_hle_irq(emulator, 134217985)
+    cpu::switch_mode(emulator.cpu, 31)
+    cpu::set_flag(emulator.cpu, 7, false)
+    cpu::set_thumb(emulator.cpu, true)
+    emulator.cpu.registers[15] = 134218240
+    devices::start_hle_irq(emulator, 134218497)
+    emulator.cpu.registers[15] = 4294967292
+    emulator::step(emulator)
+    if emulator.cpu.registers[15] != 134218240 {
+        return 121
+    }
+    if cpu::mode(emulator.cpu) != 31 {
+        return 122
+    }
+    if emulator.devices.in_hle_irq == false {
+        return 123
+    }
+    cpu::switch_mode(emulator.cpu, 18)
+    emulator.cpu.registers[15] = 4294967292
+    emulator::step(emulator)
+    if emulator.cpu.registers[15] != 33554688 {
+        return 124
+    }
+    if cpu::mode(emulator.cpu) != 31 {
+        return 125
+    }
+    if cpu::thumb(emulator.cpu) == false {
+        return 126
+    }
+    if emulator.cpu.registers[13] != original_sp {
+        return 127
+    }
+    if emulator.devices.in_hle_irq {
+        return 128
+    }
+    return 0
+}
+
+fn test_initial_registers(emulator: write emulator::State) -> u32 {
+    emulator;
+    let zeros = cpu::zero_registers()
+    for index in 0..16 {
+        if zeros[index] != 0 {
+            return 1
+        }
+    }
+    let state = cpu::new()
+    for index in 0..7 {
+        if state.user_high[index] != 0 || state.fiq_high[index] != 0 {
+            return 2
+        }
+    }
+    return 0
+}

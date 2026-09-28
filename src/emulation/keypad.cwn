@@ -1,0 +1,41 @@
+module keypad {
+    const INPUT: usize = 0x130
+    const CONTROL: usize = 0x132
+    const KEY_MASK: u16 = 0x03ff
+    const IRQ_ENABLE: u16 = 1 << 14
+    const MATCH_ALL: u16 = 1 << 15
+    const CONTROL_MASK: u16 = KEY_MASK | IRQ_ENABLE | MATCH_ALL
+
+    fn input(memory: memory::State) -> u16 {
+        return ~memory.keypad_pressed & KEY_MASK
+    }
+
+    fn set_pressed(memory: write memory::State, pressed: u16) -> void {
+        memory.keypad_pressed = pressed & KEY_MASK
+        memory::io_store16(memory, keypad::INPUT, input(memory))
+        return
+    }
+
+    fn write_control(memory: write memory::State, value: u16) -> void {
+        memory.keypad_control = value & CONTROL_MASK
+        let control = memory.keypad_control
+        memory::io_store16(memory, keypad::CONTROL, control)
+        return
+    }
+
+    fn irq_requested(memory: memory::State) -> bool {
+        let control = memory.keypad_control
+        if control & IRQ_ENABLE == 0 {
+            return false
+        }
+        let mask = control & KEY_MASK
+        if mask == 0 {
+            return false
+        }
+        let pressed = memory.keypad_pressed & KEY_MASK
+        if control & MATCH_ALL != 0 {
+            return pressed & mask == mask
+        }
+        return pressed & mask != 0
+    }
+}

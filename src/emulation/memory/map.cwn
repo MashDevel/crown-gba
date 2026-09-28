@@ -1,0 +1,47 @@
+module memory {
+    const BIOS_START: u32 = 0x0000_0000
+    const EWRAM_START: u32 = 0x0200_0000
+    const IWRAM_START: u32 = 0x0300_0000
+    const IO_START: u32 = 0x0400_0000
+    const PALETTE_START: u32 = 0x0500_0000
+    const VRAM_START: u32 = 0x0600_0000
+    const OAM_START: u32 = 0x0700_0000
+    const ROM_START: u32 = 0x0800_0000
+    const SAVE_START: u32 = 0x0e00_0000
+    const BIOS_SIZE: usize = 16 * 1024
+    const EWRAM_SIZE: usize = 256 * 1024
+    const IWRAM_SIZE: usize = 32 * 1024
+    const IO_SIZE: usize = 1024
+    const PALETTE_SIZE: usize = 1024
+    const VRAM_SIZE: usize = 96 * 1024
+    const VRAM_WINDOW_SIZE: usize = 128 * 1024
+    const VRAM_MIRROR_SIZE: usize = VRAM_WINDOW_SIZE - VRAM_SIZE
+    const OAM_SIZE: usize = 1024
+    const EWRAM_MASK: usize = EWRAM_SIZE - 1
+    const ROM_ADDRESS_MASK: u32 = 0x01ffffff
+    const IO_MASK: usize = IO_SIZE - 1
+    const IWRAM_MASK: usize = IWRAM_SIZE - 1
+    const HALFWORD_ADDRESS_MASK: u32 = 0xffff_fffe
+    const WORD_ADDRESS_MASK: u32 = 0xffff_fffc
+    const REGION_SHIFT: u32 = 24
+
+    module region {
+        const BIOS: u32 = 0
+        const RESERVED: u32 = 1
+        const EWRAM: u32 = 2
+        const IWRAM: u32 = 3
+        const IO: u32 = 4
+        const PALETTE: u32 = 5
+        const VRAM: u32 = 6
+        const OAM: u32 = 7
+        const ROM_FIRST: u32 = 8
+        const ROM_LAST: u32 = 13
+        const EEPROM: u32 = ROM_LAST
+        const SAVE: u32 = 14
+        const UNMAPPED: u32 = 15
+    }
+
+    fn io_address(offset: usize) -> u32 {
+        IO_START + u32.from(offset)
+    }
+}

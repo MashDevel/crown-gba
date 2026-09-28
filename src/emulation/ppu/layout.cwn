@@ -1,0 +1,29 @@
+module video {
+    const WIDTH: usize = 240
+    const HEIGHT: usize = 160
+    const PIXELS: usize = WIDTH * HEIGHT
+    const TILE_SIDE: usize = 8
+    const TILE_PIXELS: usize = TILE_SIDE * TILE_SIDE
+    const TILE_4BPP_BYTES: usize = TILE_PIXELS / 2
+    const TILE_8BPP_BYTES: usize = TILE_PIXELS
+    const TILE_MASK: usize = TILE_SIDE - 1
+    const SCREEN_BLOCK_SIDE: usize = 32
+    const SCREEN_BLOCK_BYTES: usize = SCREEN_BLOCK_SIDE * SCREEN_BLOCK_SIDE * 2
+    const CHARACTER_BLOCK_BYTES: usize = 16 * 1024
+    const TEXT_SMALL_MASK: usize = 256 - 1
+    const TEXT_LARGE_MASK: usize = 512 - 1
+    const BITMAP_PAGE_BYTES: usize = 0xa000
+    const SMALL_BITMAP_WIDTH: usize = 160
+    const SMALL_BITMAP_HEIGHT: usize = 128
+    const OBJECT_VRAM: usize = 0x10000
+    const PALETTE_COLORS: usize = 256
+    const PALETTE_BANK_COLORS: usize = 16
+    const BACKDROP_PRIORITY: u8 = 4
+    const BACKDROP_LAYER: u8 = 5
+    const NO_PRIORITY: u8 = 255
+    const OBJECT_LAYER: u8 = 4
+    const OBJECT_ORDER: u8 = 0
+    const BLANK_COLOR: u32 = 0xffffff
+    const GREEN_CHANNEL_MASK: u32 = 0x00ff00
+    const FRAME_CHECKSUM_MULTIPLIER: u64 = 131
+}

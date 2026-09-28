@@ -1,0 +1,140 @@
+module video {
+    struct BitmapLine {
+        line: usize
+        mode: u16
+        control: u16
+    }
+
+    struct BitmapPoint {
+        line: usize
+        x: usize
+        mode: u16
+        control: u16
+    }
+
+    struct BitmapSample {
+        x: i32
+        y: i32
+        mode: u16
+        control: u16
+    }
+
+    fn render_bitmap(emulator: write emulator::State, bitmap: BitmapLine) -> void {
+        if bitmap.control & BITMAP_ENABLE == 0 {
+            return
+        }
+        let row = bitmap.line * WIDTH
+        var x: usize = 0
+        while x < WIDTH {
+            let point = BitmapPoint {
+                line: bitmap.line
+                x: x
+                mode: bitmap.mode
+                control: bitmap.control
+            }
+            let pixel = bitmap_pixel(emulator.memory, point)
+            let position = PixelPosition {
+                index: row + x, x: x
+            }
+            commit_pixel(emulator.ppu, position, pixel)
+            x = x.wrapping_add(1)
+        }
+        return
+    }
+
+    fn bitmap_pixel(memory: memory::State, point: BitmapPoint) -> LayerPixel {
+        let sample = bitmap_sample(memory, point)
+        let background_control = memory::io_read16(memory, video::BACKGROUND_CONTROL + 4)
+        if bitmap_in_bounds(sample) == false {
+            return empty_bitmap_pixel(background_control)
+        }
+        let x = usize.from(sample.x)
+        let y = usize.from(sample.y)
+        var color: u32 = 0
+        var visible = true
+        if sample.mode == MODE_DIRECT {
+            let offset = (y * WIDTH + x) * 2
+            color = bgr555_color(bytes::join_u16(memory.vram[offset], memory.vram[offset + 1]))
+        }
+        if sample.mode == MODE_INDEXED {
+            var offset = y * WIDTH + x
+            if sample.control & FRAME_SELECT != 0 {
+                offset = offset + BITMAP_PAGE_BYTES
+            }
+            let palette_index = usize.from(memory.vram[offset])
+            if palette_index == 0 {
+                visible = false
+            }
+            color = palette_color(memory, palette_index, false)
+        }
+        if sample.mode == MODE_DIRECT_SMALL {
+            var offset = (y * SMALL_BITMAP_WIDTH + x) * 2
+            if sample.control & FRAME_SELECT != 0 {
+                offset = offset + BITMAP_PAGE_BYTES
+            }
+            color = bgr555_color(bytes::join_u16(memory.vram[offset], memory.vram[offset + 1]))
+        }
+        return LayerPixel {
+            visible: visible
+            color: color
+            priority: u8.from(background_control & BACKGROUND_PRIORITY_MASK)
+            order: 3
+            layer: 2
+            semi: false
+        }
+    }
+
+    fn bitmap_sample(memory: memory::State, point: BitmapPoint) -> BitmapSample {
+        let background_control = memory::io_read16(memory, video::BACKGROUND_CONTROL + 4)
+        let mosaic = memory::io_read16(memory, video::MOSAIC)
+        var mosaic_x: usize = 1
+        var mosaic_y: usize = 1
+        if background_control & BACKGROUND_MOSAIC != 0 {
+            mosaic_x = usize.from(mosaic & 15) + 1
+            mosaic_y = usize.from(mosaic >> 4 & 15) + 1
+        }
+        let effective_x = point.x - point.x % mosaic_x
+        let effective_line = point.line - point.line % mosaic_y
+        let pa = signed16(memory::io_read16(memory, video::AFFINE_2))
+        let pb = signed16(memory::io_read16(memory, video::AFFINE_2 + 2))
+        let pc = signed16(memory::io_read16(memory, video::AFFINE_2 + 4))
+        let pd = signed16(memory::io_read16(memory, video::AFFINE_2 + 6))
+        let x_offset = pa.wrapping_mul(i32.from(effective_x))
+        let y_offset = pc.wrapping_mul(i32.from(effective_x))
+        let delta = i32.from(effective_line) - i32.from(point.line)
+        let reference_x = memory.affine_references[0]
+        let reference_y = memory.affine_references[1]
+        let line_x = reference_x.wrapping_add(pb.wrapping_mul(delta))
+        let line_y = reference_y.wrapping_add(pd.wrapping_mul(delta))
+        return BitmapSample {
+            x: line_x.wrapping_add(x_offset) >> 8
+            y: line_y.wrapping_add(y_offset) >> 8
+            mode: point.mode
+            control: point.control
+        }
+    }
+
+    fn empty_bitmap_pixel(control: u16) -> LayerPixel {
+        return LayerPixel {
+            visible: false
+            color: 0
+            priority: u8.from(control & BACKGROUND_PRIORITY_MASK)
+            order: 3
+            layer: 2
+            semi: false
+        }
+    }
+
+    fn bitmap_in_bounds(sample: BitmapSample) -> bool {
+        if sample.x < 0 || sample.y < 0 {
+            return false
+        }
+        if sample.mode == MODE_DIRECT_SMALL {
+            return sample.x < i32.from(SMALL_BITMAP_WIDTH) && sample.y < i32.from(SMALL_BITMAP_HEIGHT)
+        }
+        if sample.mode == MODE_DIRECT || sample.mode == MODE_INDEXED {
+            return sample.x < i32.from(WIDTH) && sample.y < i32.from(HEIGHT)
+        }
+        true
+    }
+}

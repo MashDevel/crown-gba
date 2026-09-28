@@ -1,0 +1,130 @@
+module platform {
+    extern "c" {
+        fn raw_allocate(size: usize) -> RawPtr<u8> = "malloc"
+        fn raw_release(data: RawPtr<u8>) -> void = "free"
+        fn raw_copy(destination: RawPtr<u8>, source: RawPtr<u8>, count: usize) -> RawPtr<u8> = "memcpy"
+    }
+
+    opaque resource Window {
+        library: std::dylib::Library
+        display: RawPtr<u8>
+        window: u64
+        gc: RawPtr<u8>
+        image: RawPtr<u8>
+        pixels: RawPtr<u32>
+        visual: RawPtr<u8>
+        depth: u32
+        width: u32
+        height: u32
+        image_width: u32
+        image_height: u32
+        delete_atom: u64
+        keyboard: u32
+        running: bool
+        drop {
+            unsafe {
+                if image != null() {
+                    native::x11::destroy_image(library, image)
+                }
+                if gc != null() {
+                    native::x11::free_gc(library, display, gc)
+                }
+                if window != 0 {
+                    native::x11::destroy_window(library, display, window)
+                }
+                native::x11::close_display(library, display)
+            }
+        }
+    }
+
+    fn open_window() -> Result<Window, u32> {
+        let library = match native::x11::open() {
+            Ok(value) => move value
+            Err(error) => {
+                error;
+                return Err(80)
+            }
+        }
+        unsafe {
+            let display = native::x11::open_display(library, null())
+            if display == null() {
+                return Err(81)
+            }
+            let screen = native::x11::default_screen(library, display)
+            var output = Window {
+                library: move library, display: display, window: 0, gc: null(), image: null()
+                pixels: RawPtr<u32>.from_address(0), visual: null(), depth: 0
+                width: 720, height: 480, image_width: 0, image_height: 0
+                delete_atom: 0, keyboard: 0, running: true
+            }
+            output.visual = native::x11::default_visual(output.library, display, screen)
+            output.depth = u32.from(native::x11::default_depth(output.library, display, screen))
+            configure_window(output, screen)?
+            resize_image(output)?
+            return Ok(move output)
+        }
+    }
+
+    fn configure_window(window: write Window, screen: i32) -> Result<void, u32> {
+        unsafe {
+            let parent = native::x11::root_window(window.library, window.display, screen)
+            window.window = native::x11::create_window(window.library, native::x11::CreateWindow {
+                    display: window.display, parent: parent, x: 0, y: 0, width: window.width
+                    height: window.height, border: 0, foreground: 0, background: 0
+                })
+            if window.window == 0 {
+                return Err(82)
+            }
+            window.gc = native::x11::create_gc(window.library, window.display, window.window, 0, null())
+            if window.gc == null() {
+                return Err(83)
+            }
+            native::x11::store_name(window.library, window.display, window.window, "Crown GBA\0".as_raw())
+            identify_window(window)
+            window.delete_atom = native::x11::intern_atom(window.library, window.display, "WM_DELETE_WINDOW\0".as_raw(), 0)
+            let atoms: [u64; 1] = [window.delete_atom]
+            native::x11::protocols(window.library, window.display, window.window, atoms.as_raw(), 1)
+            native::x11::select_input(window.library, window.display, window.window, 1 | 2 |(1 << 17) |(1 << 21))
+            native::x11::map_window(window.library, window.display, window.window)
+            native::x11::flush(window.library, window.display)
+        }
+        return Ok(())
+    }
+
+    fn resize_image(window: write Window) -> Result<void, u32> {
+        unsafe {
+            let dimensions = app::image_dimensions(window.width, window.height)
+            if dimensions[0] == window.image_width && dimensions[1] == window.image_height {
+                return Ok(())
+            }
+            let stride = dimensions[0] * 4
+            let data = raw_allocate(usize.from(stride * dimensions[1]))
+            if data == null() {
+                return Err(84)
+            }
+            let image = native::x11::create_image(window.library, native::x11::CreateImage {
+                    display: window.display, visual: window.visual, depth: window.depth, format: 2
+                    offset: 0, pixels: data, width: dimensions[0], height: dimensions[1], pad: 32, stride: i32.from(stride)
+                })
+            if image == null() {
+                raw_release(data);
+                return Err(85)
+            }
+            if window.image != null() {
+                native::x11::destroy_image(window.library, window.image)
+            }
+            window.image = image
+            window.pixels = RawPtr<u32>.cast(data)
+            window.image_width = dimensions[0]
+            window.image_height = dimensions[1]
+            native::x11::clear_window(window.library, window.display, window.window)
+        }
+        return Ok(())
+    }
+
+    fn window_running(window: Window) -> bool {
+        unsafe {
+            return window.running
+        }
+    }
+}

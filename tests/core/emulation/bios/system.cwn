@@ -1,0 +1,284 @@
+fn test_direct_boot_state(emulator: read emulator::State) -> u32 {
+    if memory::io_read16(emulator.memory, 0) != 128 {
+        return 201
+    }
+    if memory::io_read16(emulator.memory, 32) != 256 {
+        return 202
+    }
+    if memory::io_read16(emulator.memory, 38) != 256 {
+        return 203
+    }
+    if memory::io_read16(emulator.memory, 48) != 256 {
+        return 204
+    }
+    if memory::io_read16(emulator.memory, 54) != 256 {
+        return 205
+    }
+    if memory::io_read16(emulator.memory, 136) != 512 {
+        return 206
+    }
+    if memory::io_read16(emulator.memory, 516) != 17175 {
+        return 207
+    }
+    if emulator.memory.io[768] != 1 {
+        return 208
+    }
+    if memory::io_read16(emulator.memory, 304) != 1023 {
+        return 209
+    }
+    return 0
+}
+
+fn test_intr_wait_immediate(emulator: write emulator::State) -> u32 {
+    bios::store_interrupt_flags(emulator.memory, 1)
+    emulator.cpu.registers[0] = 0
+    emulator.cpu.registers[1] = 1
+    bios::handle_swi(emulator, 4)
+    if emulator.cpu.halted {
+        return 210
+    }
+    if bios::interrupt_flags(emulator.memory) != 0 {
+        return 211
+    }
+    return 0
+}
+
+fn test_intr_wait_discard(emulator: write emulator::State) -> u32 {
+    bios::store_interrupt_flags(emulator.memory, 1)
+    memory::io_store16(emulator.memory, 514, 0)
+    emulator.cpu.registers[0] = 1
+    emulator.cpu.registers[1] = 1
+    bios::handle_swi(emulator, 4)
+    if bios::interrupt_flags(emulator.memory) != 0 {
+        return 212
+    }
+    if emulator.cpu.halted == false {
+        return 213
+    }
+    if emulator.cpu.intr_wait_mask != 1 {
+        return 214
+    }
+    if memory::io_read16(emulator.memory, 512) & 1 == 0 {
+        return 215
+    }
+    if memory::io_read16(emulator.memory, 520) != 1 {
+        return 216
+    }
+    if cpu::flag(emulator.cpu, 7) {
+        return 217
+    }
+    bios::store_interrupt_flags(emulator.memory, 1)
+    emulator::step(emulator)
+    if emulator.cpu.halted {
+        return 218
+    }
+    if emulator.cpu.intr_wait_mask != 0 {
+        return 219
+    }
+    if bios::interrupt_flags(emulator.memory) != 0 {
+        return 220
+    }
+    return 0
+}
+
+fn test_intr_wait_holds(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    bios::store_interrupt_flags(emulator.memory, 0)
+    memory::io_store16(emulator.memory, 514, 0)
+    emulator.cpu.registers[0] = 0
+    emulator.cpu.registers[1] = 1
+    bios::handle_swi(emulator, 4)
+    let cycles = emulator::step(emulator)
+    if cycles != 1006 {
+        return 221
+    }
+    if emulator.cpu.halted == false {
+        return 222
+    }
+    bios::hard_reset(emulator)
+    return 0
+}
+
+fn test_vblank_wait(emulator: write emulator::State) -> u32 {
+    bios::store_interrupt_flags(emulator.memory, 1)
+    emulator.cpu.registers[0] = 0
+    emulator.cpu.registers[1] = 0
+    bios::handle_swi(emulator, 5)
+    if emulator.cpu.registers[0] != 1 {
+        return 223
+    }
+    if emulator.cpu.registers[1] != 1 {
+        return 224
+    }
+    if emulator.cpu.halted == false {
+        return 225
+    }
+    emulator.cpu.halted = false
+    emulator.cpu.intr_wait_mask = 0
+    return 0
+}
+
+fn test_hle_irq_flags(emulator: write emulator::State) -> u32 {
+    bios::store_interrupt_flags(emulator.memory, 2)
+    bios::store_irq_handler(emulator.memory, 0)
+    memory::io_store16(emulator.memory, 512, 8)
+    memory::io_store16(emulator.memory, 514, 8)
+    memory::io_store16(emulator.memory, 520, 1)
+    devices::enter_irq(emulator)
+    if bios::interrupt_flags(emulator.memory) != 10 {
+        return 226
+    }
+    return 0
+}
+
+fn test_intr_wait_survives_unrelated_irq(emulator: write emulator::State) -> u32 {
+    emulator.cpu = cpu::new()
+    emulator.cpu.halted = false
+    emulator.cpu.intr_wait_mask = 1
+    bios::store_interrupt_flags(emulator.memory, 4)
+    devices::start_hle_irq(emulator, 50331649)
+    emulator.cpu.registers[15] = 4294967292
+    devices::finish_irq(emulator)
+    if emulator.cpu.halted == false {
+        return 347
+    }
+    bios::resume_intr_wait(emulator)
+    if emulator.cpu.halted == false {
+        return 348
+    }
+    bios::store_interrupt_flags(emulator.memory, 5)
+    bios::resume_intr_wait(emulator)
+    if emulator.cpu.halted {
+        return 349
+    }
+    if emulator.cpu.intr_wait_mask != 0 {
+        return 350
+    }
+    return 0
+}
+
+fn test_register_ram_reset(emulator: write emulator::State) -> u32 {
+    emulator.memory.ewram[1] = 1
+    emulator.memory.iwram[1] = 2
+    emulator.memory.iwram[32500] = 3
+    emulator.memory.palette[1] = 4
+    emulator.memory.vram[1] = 5
+    emulator.memory.oam[1] = 6
+    emulator.cpu.registers[0] = 255
+    emulator.access_penalty_cycles = 0
+    emulator.bus_charging = true
+    bios::handle_swi(emulator, 1)
+    emulator.bus_charging = false
+    let contents = test_ram_reset_contents(emulator);
+    if contents != 0 {
+        return contents
+    }
+    if memory::io_read16(emulator.memory, 0) != 128 {
+        return 233
+    }
+    if memory::io_read16(emulator.memory, 136) != 512 {
+        return 234
+    }
+    if memory::io_read16(emulator.memory, 516) != 17175 {
+        return 343
+    }
+    if emulator.access_penalty_cycles != 352512 {
+        return 342
+    }
+    return 0
+}
+
+fn test_hard_reset(emulator: write emulator::State) -> u32 {
+    emulator.memory.backup[9] = 90
+    emulator.memory.ewram[9] = 91
+    bios::store_interrupt_flags(emulator.memory, 65535)
+    bios::store_irq_handler(emulator.memory, 305419896)
+    memory::io_store16(emulator.memory, 516, 0)
+    bios::handle_swi(emulator, 38)
+    if emulator.memory.backup[9] != 90 {
+        return 235
+    }
+    if emulator.memory.ewram[9] != 0 {
+        return 236
+    }
+    if bios::interrupt_flags(emulator.memory) != 0 {
+        return 237
+    }
+    if emulator.cpu.registers[15] != 134217728 {
+        return 238
+    }
+    if emulator.cpu.halted {
+        return 239
+    }
+    return test_direct_boot_state(emulator)
+}
+
+fn test_bios_copy_boundaries(emulator: write emulator::State) -> u32 {
+    memory::write16(emulator.memory, 50331648, 48879)
+    emulator.cpu.registers[0] = 0
+    emulator.cpu.registers[1] = 50331648
+    emulator.cpu.registers[2] = 1
+    bios::handle_swi(emulator, 11)
+    if memory::read16(emulator.memory, emulator.cartridge, 50331648) != 48879 {
+        return 241
+    }
+    emulator.cpu.registers[2] = 0
+    bios::handle_swi(emulator, 11)
+    if memory::read16(emulator.memory, emulator.cartridge, 50331648) != 48879 {
+        return 242
+    }
+    memory::write16(emulator.memory, 33554432, 4660)
+    emulator.cpu.registers[0] = 33554432
+    emulator.cpu.registers[1] = 50331648
+    emulator.cpu.registers[2] = 16777218
+    bios::handle_swi(emulator, 11)
+    if memory::read16(emulator.memory, emulator.cartridge, 50331648) != 4660 {
+        return 243
+    }
+    if memory::read16(emulator.memory, emulator.cartridge, 50331650) != 4660 {
+        return 244
+    }
+    return 0
+}
+
+fn test_bios_system(emulator: write emulator::State) -> u32 {
+    let direct = test_direct_boot_state(emulator);
+    if direct != 0 {
+        return direct
+    }
+    let cases = [test_intr_wait_immediate, test_intr_wait_discard, test_intr_wait_holds, test_vblank_wait, test_custom_halt, test_hle_irq_flags, test_intr_wait_survives_unrelated_irq, test_register_ram_reset, test_bios_copy_boundaries, test_hard_reset]
+    loan read cases as values {
+        return run_emulator_cases(emulator, values)
+    }
+}
+
+fn test_custom_halt(emulator: write emulator::State) -> u32 {
+    bios::handle_swi(emulator, 39)
+    if emulator.cpu.halted == false {
+        return 240
+    }
+    emulator.cpu.halted = false
+    0
+}
+
+fn test_ram_reset_contents(emulator: emulator::State) -> u32 {
+    if emulator.memory.ewram[1] != 0 {
+        return 227
+    }
+    if emulator.memory.iwram[1] != 0 {
+        return 228
+    }
+    if emulator.memory.iwram[32500] != 3 {
+        return 229
+    }
+    if emulator.memory.palette[1] != 0 {
+        return 230
+    }
+    if emulator.memory.vram[1] != 0 {
+        return 231
+    }
+    if emulator.memory.oam[1] != 0 {
+        return 232
+    }
+    0
+}

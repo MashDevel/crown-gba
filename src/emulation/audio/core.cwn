@@ -1,0 +1,73 @@
+module audio {
+    struct State {
+        registers: Vec<u8>
+        fifo_a: Fifo
+        fifo_b: Fifo
+        pulse1: PulseChannel
+        pulse2: PulseChannel
+        wave: WaveChannel
+        noise: NoiseChannel
+        samples: Vec<i32>
+        sample_clock: u64
+        channel_clock: u64
+        frame_clock: u64
+        frame_step: u8
+        master_enabled: bool
+        nonzero: bool
+        sample_count: usize
+    }
+
+    fn new() -> State {
+        var registers = std::bytes::filled(REGISTER_SIZE, 0)
+        registers[BIAS_CONTROL - REGISTER_BASE + 1] = 2
+        return State {
+            registers: move registers
+            fifo_a: new_audio_fifo()
+            fifo_b: new_audio_fifo()
+            pulse1: new_pulse_channel()
+            pulse2: new_pulse_channel()
+            wave: new_wave_channel()
+            noise: new_noise_channel()
+            samples: Vec<i32>.with_capacity(SAMPLE_BUFFER_CAPACITY)
+            sample_clock: 0
+            channel_clock: 0
+            frame_clock: 0
+            frame_step: 0
+            master_enabled: false
+            nonzero: false
+            sample_count: 0
+        }
+    }
+
+    fn has_nonzero(audio: State) -> bool {
+        return audio.nonzero
+    }
+
+    fn master_enabled(audio: State) -> bool {
+        return audio.master_enabled
+    }
+
+    fn read16(audio: State, offset: usize) -> u16 {
+        if offset < REGISTER_BASE {
+            return 0
+        }
+        let index = offset - REGISTER_BASE
+        if index + 1 >= audio.registers.length() {
+            return 0
+        }
+        return bytes::join_u16(audio.registers[index], audio.registers[index + 1])
+    }
+
+    fn store16(audio: write State, index: usize, value: u16) -> void {
+        audio.registers[index] = u8.from(value & 255)
+        audio.registers[index + 1] = u8.from(value >> 8)
+        return
+    }
+
+    fn clear_samples(audio: write State) -> void {
+        while audio.samples.length() != 0 {
+            audio.samples.pop()
+        }
+        return
+    }
+}

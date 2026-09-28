@@ -1,0 +1,101 @@
+module video {
+    const OBJECT_COUNT: usize = 128
+    const OBJECT_ENTRY_BYTES: usize = 8
+    const OBJECT_AFFINE: u16 = 1 << 8
+    const OBJECT_DOUBLE_OR_DISABLE: u16 = 1 << 9
+    const OBJECT_MODE_SHIFT: u16 = 10
+    const OBJECT_MODE_MASK: u16 = 3
+    const OBJECT_MODE_NORMAL: u16 = 0
+    const OBJECT_MODE_ALPHA: u16 = 1
+    const OBJECT_MODE_WINDOW: u16 = 2
+    const OBJECT_MOSAIC: u16 = 1 << 12
+    const OBJECT_256_COLOR: u16 = 1 << 13
+    const OBJECT_SHAPE_SHIFT: u16 = 14
+    const OBJECT_SHAPE_MASK: u16 = 3
+    const OBJECT_SHAPE_INVALID: u16 = 3
+    const OBJECT_FLIP_X: u16 = 1 << 12
+    const OBJECT_FLIP_Y: u16 = 1 << 13
+    const OBJECT_X_MASK: u16 = 0x1ff
+    const OBJECT_Y_MASK: u16 = 0xff
+    const OBJECT_X_RANGE: usize = 512
+    const OBJECT_Y_RANGE: usize = 256
+    const OBJECT_X_SIGN: i32 = 256
+    const OBJECT_BITMAP_FIRST_TILE: u16 = 512
+    const OBJECT_MATRIX_BYTES: usize = 32
+    const OBJECT_MATRIX_A: usize = 6
+    const OBJECT_MATRIX_B: usize = OBJECT_MATRIX_A + OBJECT_ENTRY_BYTES
+    const OBJECT_MATRIX_C: usize = OBJECT_MATRIX_B + OBJECT_ENTRY_BYTES
+    const OBJECT_MATRIX_D: usize = OBJECT_MATRIX_C + OBJECT_ENTRY_BYTES
+
+    struct ObjectAttributes {
+        attr0: u16
+        attr1: u16
+        attr2: u16
+    }
+
+    struct ObjectVisibility {
+        attributes: ObjectAttributes
+        line: usize
+        render_size: [usize; 2]
+    }
+
+    fn oam16(memory: memory::State, offset: usize) -> u16 {
+        return memory::vector_read16(memory.oam, offset)
+    }
+
+    fn object_valid(attributes: ObjectAttributes, control: u16) -> bool {
+        if attributes.attr0 & OBJECT_AFFINE == 0 {
+            if attributes.attr0 & OBJECT_DOUBLE_OR_DISABLE != 0 {
+                return false
+            }
+        }
+        if attributes.attr0 >> OBJECT_SHAPE_SHIFT & OBJECT_SHAPE_MASK == 3 {
+            return false
+        }
+        if control & MODE_MASK >= MODE_DIRECT {
+            if attributes.attr2 & TILE_INDEX_MASK < OBJECT_BITMAP_FIRST_TILE {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn object_line_visible(visibility: ObjectVisibility) -> bool {
+        let local_y = (visibility.line + OBJECT_Y_RANGE - usize.from(visibility.attributes.attr0 & OBJECT_Y_MASK)) % OBJECT_Y_RANGE
+        if local_y >= visibility.render_size[1] {
+            return false
+        }
+        var origin_x = i32.from(visibility.attributes.attr1 & OBJECT_X_MASK)
+        if origin_x >= OBJECT_X_SIGN {
+            origin_x = origin_x - i32.from(OBJECT_X_RANGE)
+        }
+        if origin_x >= i32.from(WIDTH) {
+            return false
+        }
+        return origin_x + i32.from(visibility.render_size[0]) > 0
+    }
+
+    fn object_render_size(attr0: u16, size: [usize; 2]) -> [usize; 2] {
+        if attr0 & OBJECT_AFFINE != 0 {
+            if attr0 & OBJECT_DOUBLE_OR_DISABLE != 0 {
+                return [size[0] * 2, size[1] * 2]
+            }
+        }
+        return size
+    }
+
+    fn object_size(attr0: u16, attr1: u16) -> [usize; 2] {
+        let shape = usize.from(attr0 >> OBJECT_SHAPE_SHIFT & OBJECT_SHAPE_MASK)
+        let size = usize.from(attr1 >> OBJECT_SHAPE_SHIFT & OBJECT_SHAPE_MASK)
+        if shape == 0 {
+            let side = usize.from(8) << size
+            return [side, side]
+        }
+        let narrow: [usize; 4] = [8, 8, 16, 32]
+        let wide: [usize; 4] = [16, 32, 32, 64]
+        if shape == 1 {
+            return [wide[size], narrow[size]]
+        }
+        [narrow[size], wide[size]]
+    }
+}

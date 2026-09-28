@@ -1,0 +1,290 @@
+module host {
+    extern "c" {
+        fn open(path: RawPtr<u8>, flags: i32) -> i32 = "open"
+        fn seek(file: i32, offset: i64, origin: i32) -> i64 = "lseek"
+        fn host_read(file: i32, output: RawPtr<u8>, length: usize) -> isize = "read"
+        fn host_write(file: i32, input: RawPtr<u8>, length: usize) -> isize = "write"
+        fn close(file: i32) -> i32 = "close"
+        fn sync(file: i32) -> i32 = "fsync"
+        fn make_temporary(path: RawPtr<u8>) -> i32 = "mkstemp"
+        fn rename(source: RawPtr<u8>, destination: RawPtr<u8>) -> i32 = "rename"
+        fn unlink(path: RawPtr<u8>) -> i32 = "unlink"
+        fn sin(value: f64) -> f64 = "sin"
+        fn cos(value: f64) -> f64 = "cos"
+        fn atan(value: f64) -> f64 = "atan"
+        fn atan2(y: f64, x: f64) -> f64 = "atan2"
+        fn round(value: f64) -> f64 = "round"
+    }
+
+    opaque resource Buffer {
+        data: Vec<u8>
+        length: usize
+        drop {
+        }
+    }
+
+    opaque resource File {
+        value: i32
+        drop {
+            unsafe {
+                if value >= 0 {
+                    close(value)
+                }
+            }
+        }
+    }
+
+    fn null_byte_pointer() -> RawPtr<u8> {
+        unsafe {
+            return RawPtr<u8>.from_address(0)
+        }
+    }
+
+    fn allocate_buffer(length: usize) -> Result<Buffer, u32> {
+        let data = std::bytes::filled(length, 0)
+        unsafe {
+            return Ok(Buffer {
+                    data: move data, length: length
+                })
+        }
+    }
+
+    fn buffer_length(buffer: Buffer) -> usize {
+        unsafe {
+            return buffer.length
+        }
+    }
+
+    fn buffer_get(buffer: Buffer, index: usize) -> u8 {
+        unsafe {
+            return buffer.data[index]
+        }
+    }
+
+    fn buffer_set(buffer: write Buffer, index: usize, value: u8) -> void {
+        unsafe {
+            buffer.data[index] = value
+        }
+        return
+    }
+
+    unsafe fn buffer_read_pointer(buffer: Buffer) -> RawPtr<u8> {
+        unsafe {
+            return buffer.data.as_raw()
+        }
+    }
+
+    unsafe fn buffer_write_pointer(buffer: write Buffer) -> RawPtr<u8> {
+        unsafe {
+            return buffer.data.as_raw()
+        }
+    }
+
+    fn buffer_is_path(buffer: Buffer) -> bool {
+        let length = buffer_length(buffer)
+        if length == 0 {
+            return false
+        }
+        var index: usize = 0
+        while index + 1 < length {
+            if buffer_get(buffer, index) == 0 {
+                return false
+            }
+            index = index + 1
+        }
+        return buffer_get(buffer, length - 1) == 0
+    }
+
+    fn read_host_file(file: File, buffer: write Buffer, length: usize) -> bool {
+        if length > buffer_length(buffer) {
+            return false
+        }
+        var offset: usize = 0
+        while offset < length {
+            var count: isize = 0
+            unsafe {
+                let data = buffer_write_pointer(buffer)
+                count = host_read(file.value, data.offset(offset), length - offset)
+            }
+            if count <= 0 {
+                return false
+            }
+            offset = offset + usize.from(count)
+        }
+        return true
+    }
+
+    fn open_path_file(path: TextView, flags: i32) -> Option<File> {
+        let encoded = std::cstr::encode(path)
+        match move encoded {
+            Some(bytes) => {
+                let data = move bytes
+                var value: i32 = -1
+                unsafe {
+                    value = open(data.as_raw(), flags)
+                }
+                if value < 0 {
+                    return None()
+                }
+                unsafe {
+                    return Some(File {
+                            value: value
+                        })
+                }
+            }
+            None => {
+                return None()
+            }
+        }
+    }
+
+    fn open_buffer_file(path: Buffer, flags: i32) -> Option<File> {
+        if buffer_is_path(path) == false {
+            return None()
+        }
+        var value: i32 = -1
+        unsafe {
+            value = open(buffer_read_pointer(path), flags)
+        }
+        if value < 0 {
+            return None()
+        }
+        unsafe {
+            return Some(File {
+                    value: value
+                })
+        }
+    }
+
+    fn seek_host_file(file: File, offset: i64, origin: i32) -> i64 {
+        unsafe {
+            return seek(file.value, offset, origin)
+        }
+    }
+
+    fn close_host_file(file: write File) -> i32 {
+        unsafe {
+            if file.value < 0 {
+                return 0
+            }
+            let value = file.value
+            file.value = -1
+            return close(value)
+        }
+    }
+
+    fn sync_host_file(file: File) -> i32 {
+        unsafe {
+            return sync(file.value)
+        }
+    }
+
+    fn make_temporary_file(path: write Buffer) -> Option<File> {
+        if buffer_is_path(path) == false {
+            return None()
+        }
+        var value: i32 = -1
+        unsafe {
+            value = make_temporary(buffer_write_pointer(path))
+        }
+        if value < 0 {
+            return None()
+        }
+        unsafe {
+            return Some(File {
+                    value: value
+                })
+        }
+    }
+
+    fn rename_host_file(source: Buffer, destination: Buffer) -> i32 {
+        if buffer_is_path(source) == false {
+            return -1
+        }
+        if buffer_is_path(destination) == false {
+            return -1
+        }
+        unsafe {
+            return rename(buffer_read_pointer(source), buffer_read_pointer(destination))
+        }
+    }
+
+    fn unlink_host_file(path: Buffer) -> i32 {
+        if buffer_is_path(path) == false {
+            return -1
+        }
+        unsafe {
+            return unlink(buffer_read_pointer(path))
+        }
+    }
+
+    fn write_host_buffer(file: File, buffer: Buffer, length: usize) -> bool {
+        if length > buffer_length(buffer) {
+            return false
+        }
+        unsafe {
+            return write_raw_descriptor(file.value, buffer, length)
+        }
+    }
+
+    unsafe fn write_raw_descriptor(file: i32, buffer: Buffer, length: usize) -> bool {
+        var offset: usize = 0
+        while offset < length {
+            var count: isize = 0
+            unsafe {
+                let data = buffer_read_pointer(buffer)
+                count = host_write(file, data.offset(offset), length - offset)
+            }
+            if count <= 0 {
+                return false
+            }
+            offset = offset + usize.from(count)
+        }
+        return true
+    }
+
+    fn write_standard_error(buffer: Buffer, length: usize) -> bool {
+        if length > buffer_length(buffer) {
+            return false
+        }
+        unsafe {
+            return write_raw_descriptor(2, buffer, length)
+        }
+    }
+
+    fn write_buffer_file(path: TextView, buffer: Buffer) -> Result<void, std::io::Error> {
+        unsafe {
+            return std::io::write_file(path, buffer.data)
+        }
+    }
+
+    fn native_sin(value: f64) -> f64 {
+        unsafe {
+            return sin(value)
+        }
+    }
+
+    fn native_cos(value: f64) -> f64 {
+        unsafe {
+            return cos(value)
+        }
+    }
+
+    fn native_atan(value: f64) -> f64 {
+        unsafe {
+            return atan(value)
+        }
+    }
+
+    fn native_atan2(y: f64, x: f64) -> f64 {
+        unsafe {
+            return atan2(y, x)
+        }
+    }
+
+    fn native_round(value: f64) -> f64 {
+        unsafe {
+            return round(value)
+        }
+    }
+}

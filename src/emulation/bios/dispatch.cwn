@@ -1,0 +1,158 @@
+module bios {
+    fn handle_swi(emulator: write emulator::State, comment: u32) -> void {
+        if handle_system_swi(emulator, comment) {
+            return
+        }
+        if handle_core_swi(emulator, comment) {
+            return
+        }
+        if handle_sound_swi(emulator, comment) {
+            return
+        }
+        emulator.unsupported_swi = emulator.unsupported_swi + 1
+        return
+    }
+
+    fn handle_system_swi(emulator: write emulator::State, comment: u32) -> bool {
+        if comment == call::SOFT_RESET {
+            soft_reset(emulator);
+            return true
+        }
+        if comment == call::RAM_RESET {
+            ram_reset(emulator);
+            return true
+        }
+        if swi_halts(comment) {
+            emulator.cpu.halted = true;
+            return true
+        }
+        if comment == call::INTERRUPT_WAIT {
+            let mask = emulator.cpu.registers[1]
+            intr_wait(emulator, mask)
+            return true
+        }
+        if comment == call::VBLANK_WAIT {
+            emulator.cpu.registers[0] = 1
+            emulator.cpu.registers[1] = 1
+            intr_wait(emulator, 1)
+            return true
+        }
+        if comment == call::CHECKSUM {
+            emulator.cpu.registers[0] = BIOS_CHECKSUM;
+            return true
+        }
+        if comment == call::MULTIBOOT {
+            emulator.cpu.registers[0] = 0;
+            return true
+        }
+        if comment == call::HARD_RESET {
+            hard_reset(emulator);
+            return true
+        }
+        if comment == call::DEBUG_PRINT {
+            debug_print(emulator);
+            return true
+        }
+        return false
+    }
+
+    fn swi_halts(comment: u32) -> bool {
+        comment == call::HALT || comment == call::STOP || comment == call::CUSTOM_HALT
+    }
+
+    fn handle_core_swi(emulator: write emulator::State, comment: u32) -> bool {
+        if handle_math_swi(emulator.cpu, comment) {
+            return true
+        }
+        if handle_transfer_swi(emulator, comment) {
+            return true
+        }
+        handle_compression_swi(emulator, comment)
+    }
+
+    fn handle_math_swi(cpu: write cpu::State, comment: u32) -> bool {
+        if comment == call::DIVIDE || comment == call::DIVIDE_ARM {
+            div(cpu, comment == call::DIVIDE_ARM);
+            return true
+        }
+        if comment == call::SQUARE_ROOT {
+            sqrt(cpu);
+            return true
+        }
+        if comment == call::ARCTANGENT {
+            arctan(cpu);
+            return true
+        }
+        if comment == call::ARCTANGENT_2 {
+            arctan2(cpu);
+            return true
+        }
+        false
+    }
+
+    fn handle_transfer_swi(emulator: write emulator::State, comment: u32) -> bool {
+        if comment == call::CPU_SET || comment == call::CPU_FAST_SET {
+            bios_copy(emulator, comment == call::CPU_FAST_SET);
+            return true
+        }
+        if comment == call::BACKGROUND_AFFINE {
+            bg_affine_set(emulator);
+            return true
+        }
+        if comment == call::OBJECT_AFFINE {
+            obj_affine_set(emulator);
+            return true
+        }
+        false
+    }
+
+    fn handle_compression_swi(emulator: write emulator::State, comment: u32) -> bool {
+        if comment == call::BIT_UNPACK {
+            bit_unpack(emulator);
+            return true
+        }
+        if comment == call::LZ77_RAM || comment == call::LZ77_VRAM {
+            lz77(emulator, comment == call::LZ77_VRAM);
+            return true
+        }
+        if comment == call::HUFFMAN {
+            huffman(emulator);
+            return true
+        }
+        if comment == call::RUN_LENGTH_RAM || comment == call::RUN_LENGTH_VRAM {
+            run_length(emulator, comment == call::RUN_LENGTH_VRAM);
+            return true
+        }
+        if comment == call::DIFF8_RAM || comment == call::DIFF8_VRAM {
+            diff8(emulator, comment == call::DIFF8_VRAM);
+            return true
+        }
+        if comment == call::DIFF16 {
+            diff16(emulator);
+            return true
+        }
+        false
+    }
+
+    fn handle_sound_swi(emulator: write emulator::State, comment: u32) -> bool {
+        if comment >= call::SOUND_BIAS && comment <= call::MUSIC_FADE_OUT {
+            let handlers = [bios::sound::bias, bios::sound::driver_init, bios::sound::driver_mode, bios::sound::driver_main, bios::sound::driver_vsync, bios::sound::clear_channels, bios::sound::midi_key_to_frequency, music_player_open, music_player_start, music_player_stop, music_player_continue, music_player_fade_out]
+            let handle = handlers[usize.from(comment - call::SOUND_BIAS)]
+            handle(emulator)
+            return true
+        }
+        if comment == call::SOUND_VSYNC_OFF || comment == call::SOUND_VSYNC_ON {
+            bios::sound::vsync_set(emulator, comment == call::SOUND_VSYNC_ON);
+            return true
+        }
+        if comment == call::SOUND_JUMP_LIST {
+            bios::sound::get_jump_list(emulator);
+            return true
+        }
+        if comment >= call::SOUND_JUMP_FIRST && comment <= call::SOUND_JUMP_LAST {
+            bios::sound::jump_call(emulator, usize.from(comment - call::SOUND_JUMP_FIRST))
+            return true
+        }
+        false
+    }
+}

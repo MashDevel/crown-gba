@@ -1,0 +1,94 @@
+module app {
+    const OUTPUT_RATE: u32 = 48000
+    const AUDIO_CAPACITY: usize = 32768
+
+    struct SampleRing {
+        samples: Vec<f32>
+        head: usize
+        length: usize
+        phase: u64
+        history: Vec<i32>
+        cursor: usize
+        rate: u32
+        kernel: Vec<f64>
+        initialized: bool
+    }
+
+    fn sample_ring() -> SampleRing {
+        var samples = Vec<f32>.with_capacity(AUDIO_CAPACITY)
+        for index in 0..AUDIO_CAPACITY {
+            index;
+            samples.push(0.0)
+        }
+        var history = Vec<i32>.with_capacity(64)
+        for index in 0..64 {
+            index;
+            history.push(0)
+        }
+        return SampleRing {
+            samples: move samples, head: 0, length: 0, phase: 0, history: move history, cursor: 0,
+            rate: 0, kernel: Vec<f64>.new(), initialized: false
+        }
+    }
+
+    fn ring_frames(ring: SampleRing) -> usize {
+        return ring.length / 2
+    }
+
+    fn ring_sample(ring: write SampleRing) -> f32 {
+        if ring.length == 0 {
+            return 0.0
+        }
+        let value = ring.samples[ring.head]
+        ring.head = (ring.head + 1) % AUDIO_CAPACITY
+        ring.length = ring.length - 1
+        return value
+    }
+
+    fn ring_push(ring: write SampleRing, samples: Vec<i32>, rate: u32) -> bool {
+        if rate == 0 || rate > 262144 || samples.length() % 2 != 0 {
+            return false
+        }
+        let required = ((u64.from(samples.length() / 2) * u64.from(OUTPUT_RATE) + u64.from(rate) - 1) / u64.from(rate) + 1) * 2
+        if required > u64.from(AUDIO_CAPACITY - ring.length) {
+            return false
+        }
+        if samples.length() == 0 {
+            return true
+        }
+        prepare_resampler(ring, rate)
+        for index in 0..samples.length() / 2 {
+            let current = [samples[index * 2], samples[index * 2 + 1]]
+            retain_source_sample(ring, current)
+            resample_pair(ring, current, rate)
+        }
+        return true
+    }
+
+    fn resample_pair(ring: write SampleRing, current: [i32; 2], rate: u32) -> void {
+        while ring.phase < u64.from(OUTPUT_RATE) {
+            var sample = [f64.from(current[0]), f64.from(current[1])]
+            if rate != OUTPUT_RATE {
+                sample = filtered_source_sample(ring)
+            }
+            ring_write(ring, sample[0])
+            ring_write(ring, sample[1])
+            ring.phase = ring.phase + u64.from(rate)
+        }
+        ring.phase = ring.phase - u64.from(OUTPUT_RATE)
+    }
+
+    fn ring_write(ring: write SampleRing, sample: f64) -> void {
+        let value = sample * 48.0 / 32768.0
+        var limited = value
+        if value < -1.0 {
+            limited = -1.0
+        }
+        if value > 1.0 {
+            limited = 1.0
+        }
+        let position = (ring.head + ring.length) % AUDIO_CAPACITY
+        ring.samples[position] = f32.from(limited)
+        ring.length = ring.length + 1
+    }
+}

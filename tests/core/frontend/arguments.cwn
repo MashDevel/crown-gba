@@ -1,0 +1,80 @@
+fn test_cli_count(value: Text, expected: Option<u64>) -> bool {
+    loan read value as view {
+        return match cli::parse_count(view) {
+            Ok(count) => {
+                match expected {
+                    Some(wanted) => count == wanted
+                    None => false
+                }
+            }
+            Err(code) => {
+                match expected {
+                    Some(wanted) => {
+                        wanted;
+                        false
+                    }
+                    None => code == cli::INVALID_COUNT
+                }
+            }
+        }
+    }
+}
+
+fn test_cli_arguments() -> u32 {
+    if test_cli_count("0", Some(0)) == false {
+        return 440
+    }
+    if test_cli_count("18446744073709551615", Some(18446744073709551615)) == false {
+        return 441
+    }
+    if test_cli_count("18446744073709551616", None()) == false {
+        return 442
+    }
+    if test_cli_count("", None()) == false {
+        return 443
+    }
+    if test_cli_count("-1", None()) == false {
+        return 444
+    }
+    if test_cli_count("12x", None()) == false {
+        return 445
+    }
+    return test_cli_invalid_counts()
+}
+
+fn test_cli_invalid_counts() -> u32 {
+    let values = ["+1", " 1", "1 ", "λ", "1\0", "１２"]
+    for index in 0..6 {
+        if !test_cli_count(values[index], None()) {
+            return 447
+        }
+    }
+    return test_cli_selection()
+}
+
+fn test_cli_selection() -> u32 {
+    var selection = cli::Selection {
+        bios: None(), screenshot: None(), run: cli::Run::Interactive()
+    }
+    match cli::select_run(selection, cli::Run::Frames(0)) {
+        Ok(value) => {
+            value
+        }
+        Err(code) => {
+            return code
+        }
+    }
+    match cli::select_run(selection, cli::Run::Steps(0)) {
+        Ok(value) => {
+            value;
+            return 446
+        }
+        Err(code) => {
+            return if code == cli::CONFLICTING_ARGUMENT {
+                0
+            } else {
+                code
+            }
+        }
+    }
+}

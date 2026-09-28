@@ -1,0 +1,42 @@
+fn test_keypad(emulator: write emulator::State) -> u32 {
+    keypad::set_pressed(emulator.memory, 553)
+    if keypad::input(emulator.memory) != 470 {
+        return 81
+    }
+    memory::write16(emulator.memory, 67109168, 0)
+    if keypad::input(emulator.memory) != 470 {
+        return 82
+    }
+    memory::write16(emulator.memory, 67109170, 65535)
+    if emulator.memory.keypad_control != 50175 {
+        return 83
+    }
+    keypad::set_pressed(emulator.memory, 2)
+    keypad::write_control(emulator.memory, 16387)
+    memory::io_store16(emulator.memory, 514, 0)
+    devices::step(emulator, 1)
+    if memory::io_read16(emulator.memory, 514) & 4096 == 0 {
+        return 84
+    }
+    keypad::set_pressed(emulator.memory, 1)
+    keypad::write_control(emulator.memory, 49155)
+    memory::io_store16(emulator.memory, 514, 0)
+    devices::step(emulator, 1)
+    if memory::io_read16(emulator.memory, 514) & 4096 != 0 {
+        return 85
+    }
+    keypad::set_pressed(emulator.memory, 3)
+    devices::step(emulator, 1)
+    if memory::io_read16(emulator.memory, 514) & 4096 == 0 {
+        return 86
+    }
+    keypad::write_control(emulator.memory, 49152)
+    memory::io_store16(emulator.memory, 514, 0)
+    devices::step(emulator, 1)
+    if memory::io_read16(emulator.memory, 514) & 4096 != 0 {
+        return 87
+    }
+    keypad::set_pressed(emulator.memory, 0)
+    keypad::write_control(emulator.memory, 0)
+    return 0
+}

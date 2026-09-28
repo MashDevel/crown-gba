@@ -1,0 +1,287 @@
+fn reset_test_timers(memory: write memory::State) -> void {
+    bios::reset_timers(memory)
+    bios::clear_io_range(memory, 256, 272)
+    memory::io_store16(memory, 514, 0)
+    return
+}
+
+fn test_timer_enable_and_reload(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 4660)
+    timers::timer_write_register(memory, 67109122, 128)
+    if memory.timer_direct != 1 {
+        return 258
+    }
+    if memory.timer_cascade != 0 {
+        return 259
+    }
+    if memory.timer_counter[0] != 4660 {
+        return 241
+    }
+    timers::step(memory, 3)
+    timers::timer_write_register(memory, 67109122, 128)
+    if memory.timer_counter[0] != 4663 {
+        return 242
+    }
+    return 0
+}
+
+fn test_timer_prescaler(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 0)
+    timers::timer_write_register(memory, 67109122, 129)
+    if memory.timer_shifts[0] != 6 {
+        return 391
+    }
+    if memory.timer_masks[0] != 63 {
+        return 392
+    }
+    timers::step(memory, 130)
+    if memory.timer_counter[0] != 2 {
+        return 243
+    }
+    if memory.timer_cycles[0] != 2 {
+        return 397
+    }
+    timers::step(memory, 62)
+    if memory.timer_counter[0] != 3 {
+        return 244
+    }
+    if memory.timer_cycles[0] != 0 {
+        return 398
+    }
+    return 0
+}
+
+fn test_timer_prescaler_boundary(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 0)
+    timers::timer_write_register(memory, 67109122, 131)
+    if memory.timer_shifts[0] != 10 {
+        return 393
+    }
+    if memory.timer_masks[0] != 1023 {
+        return 394
+    }
+    timers::step(memory, 1023)
+    if memory.timer_counter[0] != 0 {
+        return 395
+    }
+    timers::step(memory, 1)
+    if memory.timer_counter[0] != 1 {
+        return 396
+    }
+    return 0
+}
+
+fn test_timer_cascade(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 65535)
+    timers::timer_write_register(memory, 67109124, 65535)
+    timers::timer_write_register(memory, 67109122, 128)
+    timers::timer_write_register(memory, 67109126, 196)
+    if memory.timer_direct != 1 {
+        return 260
+    }
+    if memory.timer_cascade != 2 {
+        return 261
+    }
+    let overflows = timers::step(memory, 1)
+    if overflows[0] != 1 {
+        return 245
+    }
+    if overflows[1] != 1 {
+        return 246
+    }
+    if memory.timer_counter[1] != 65535 {
+        return 247
+    }
+    if memory::io_read16(memory, 514) & 16 == 0 {
+        return 248
+    }
+    return 0
+}
+
+fn test_timer_cascade_ignores_cycles(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109124, 13398)
+    timers::timer_write_register(memory, 67109126, 132)
+    timers::step(memory, 1024)
+    if memory.timer_counter[1] != 13398 {
+        return 249
+    }
+    timers::timer_write_register(memory, 67109120, 65535)
+    timers::timer_write_register(memory, 67109122, 128)
+    timers::step(memory, 1)
+    if memory.timer_counter[1] != 13399 {
+        return 250
+    }
+    return 0
+}
+
+fn test_timer_zero_cascade_disabled(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 65520)
+    timers::timer_write_register(memory, 67109122, 132)
+    timers::step(memory, 50)
+    if memory.timer_counter[0] != 65520 {
+        return 251
+    }
+    return 0
+}
+
+fn test_timer_multiple_overflows(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 65520)
+    timers::timer_write_register(memory, 67109122, 128)
+    let overflows = timers::step(memory, 50)
+    if overflows[0] != 3 {
+        return 252
+    }
+    if memory.timer_counter[0] != 65522 {
+        return 253
+    }
+    return 0
+}
+
+fn test_timer_irq_lines(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    var index: usize = 0
+    while index < 4 {
+        timers::timer_write_register(memory, 67109120 + u32.from(index) * 4, 65535)
+        timers::timer_write_register(memory, 67109122 + u32.from(index) * 4, 192)
+        index = index + 1
+    }
+    let direct = timers::step(memory, 1)
+    if direct !=[1, 1, 1, 1] {
+        return 254
+    }
+    if memory::io_read16(memory, 514) & 120 != 120 {
+        return 255
+    }
+    reset_test_timers(memory)
+    timers::timer_write_register(memory, 67109120, 65535)
+    timers::timer_write_register(memory, 67109122, 128)
+    index = 1
+    while index < 4 {
+        timers::timer_write_register(memory, 67109120 + u32.from(index) * 4, 65535)
+        timers::timer_write_register(memory, 67109122 + u32.from(index) * 4, 196)
+        index = index + 1
+    }
+    let cascade = timers::step(memory, 1)
+    if cascade !=[1, 1, 1, 1] {
+        return 256
+    }
+    if memory::io_read16(memory, 514) & 112 != 112 {
+        return 257
+    }
+    return 0
+}
+
+fn test_timer_quiet_multiple(memory: write memory::State) -> u32 {
+    reset_test_timers(memory)
+    if memory.timer_next_cycles != 18446744073709551615 {
+        return 427
+    }
+    timers::timer_write_register(memory, 67109120, 65530)
+    timers::timer_write_register(memory, 67109122, 128)
+    timers::timer_write_register(memory, 67109124, 100)
+    timers::timer_write_register(memory, 67109126, 129)
+    timers::timer_write_register(memory, 67109132, 200)
+    timers::timer_write_register(memory, 67109134, 130)
+    if memory.timer_direct != 11 {
+        return 381
+    }
+    if memory.timer_next_cycles != 6 {
+        return 428
+    }
+    if timers::next_event(memory, 10) != 6 {
+        return 382
+    }
+    timers::advance_quiet(memory, 5)
+    if memory.timer_next_cycles != 1 {
+        return 429
+    }
+    if memory.timer_counter !=[65535, 100, 0, 200] {
+        return 383
+    }
+    let bytes = test_timer_counter_bytes(memory);
+    if bytes != 0 {
+        return bytes
+    }
+    if timers::next_event(memory, 10) != 1 {
+        return 384
+    }
+    timers::advance_quiet(memory, 0)
+    if memory.timer_counter !=[65535, 100, 0, 200] {
+        return 385
+    }
+    return 0
+}
+
+fn test_timers(memory: write memory::State) -> u32 {
+    let enable = test_timer_enable_and_reload(memory)
+    if enable != 0 {
+        return enable
+    }
+    let prescaler = test_timer_prescaler(memory)
+    if prescaler != 0 {
+        return prescaler
+    }
+    let boundary = test_timer_prescaler_boundary(memory)
+    if boundary != 0 {
+        return boundary
+    }
+    let cascade = test_timer_cascade(memory)
+    if cascade != 0 {
+        return cascade
+    }
+    let ignore = test_timer_cascade_ignores_cycles(memory)
+    if ignore != 0 {
+        return ignore
+    }
+    let zero = test_timer_zero_cascade_disabled(memory)
+    if zero != 0 {
+        return zero
+    }
+    let multiple = test_timer_multiple_overflows(memory)
+    if multiple != 0 {
+        return multiple
+    }
+    let irq = test_timer_irq_lines(memory)
+    if irq != 0 {
+        return irq
+    }
+    return test_timer_quiet_multiple(memory)
+}
+
+fn test_timer(emulator: write emulator::State) -> u32 {
+    reset_test_timers(emulator.memory)
+    memory::write16(emulator.memory, 67109120, 65534)
+    memory::write16(emulator.memory, 67109122, 192)
+    devices::step(emulator, 2)
+    if emulator.memory.timer_counter[0] != 65534 {
+        return 8
+    }
+    if memory::io_read16(emulator.memory, 514) & 8 == 0 {
+        return 9
+    }
+    reset_test_timers(emulator.memory)
+    memory::write16(emulator.memory, 67109120, 0)
+    memory::write16(emulator.memory, 67109122, 128)
+    devices::step(emulator, 5)
+    if bus::read16(emulator, 67109120) != 5 {
+        return 389
+    }
+    return 0
+}
+
+fn test_timer_counter_bytes(memory: memory::State) -> u32 {
+    if memory::io_read8(memory, 256) != 255 {
+        return 387
+    }
+    if memory::io_read8(memory, 257) != 255 {
+        return 388
+    }
+    0
+}

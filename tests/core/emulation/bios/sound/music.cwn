@@ -1,0 +1,144 @@
+fn test_midi_frequency(emulator: write emulator::State) -> u32 {
+    memory::write32(emulator.memory, 33554436, 2147483648)
+    emulator.cpu.registers[0] = 33554432
+    emulator.cpu.registers[1] = 60
+    emulator.cpu.registers[2] = 64
+    bios::handle_swi(emulator, 31)
+    if emulator.cpu.registers[0] != 2128327 {
+        return 293
+    }
+    return 0
+}
+
+fn test_sound_jump_list(emulator: write emulator::State) -> u32 {
+    emulator.cpu.registers[0] = 33554432
+    bios::handle_swi(emulator, 42)
+    if memory::read32(emulator.memory, emulator.cartridge, 33554432) != 16241 {
+        return 294
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, 33554572) != 16381 {
+        return 295
+    }
+    if bytes::join_u16(emulator.memory.bios[16240], emulator.memory.bios[16241]) != 57131 {
+        return 296
+    }
+    if bytes::join_u16(emulator.memory.bios[16242], emulator.memory.bios[16243]) != 18288 {
+        return 297
+    }
+    let area: u32 = 50356224
+    let table: u32 = 50356480
+    memory::write32(emulator.memory, 50364400, area)
+    memory::write32(emulator.memory, area + 52, table)
+    memory::write32(emulator.memory, table, 33554689)
+    emulator.cpu.registers[14] = 134222389
+    bios::handle_swi(emulator, 43)
+    if emulator.cpu.registers[15] != 33554688 {
+        return 298
+    }
+    if cpu::thumb(emulator.cpu) == false {
+        return 299
+    }
+    if emulator.cpu.registers[14] != 134222389 {
+        return 300
+    }
+    return 0
+}
+
+fn test_music_open(emulator: write emulator::State) -> u32 {
+    let area: u32 = 50356224
+    let player: u32 = 50356480
+    let tracks: u32 = 50356736
+    memory::write32(emulator.memory, 50364400, area)
+    memory::write32(emulator.memory, area, 1752395091)
+    memory::write8(emulator.memory, tracks, 255)
+    memory::write8(emulator.memory, tracks + 80, 255)
+    emulator.cpu.registers[0] = player
+    emulator.cpu.registers[1] = tracks
+    emulator.cpu.registers[2] = 2
+    bios::handle_swi(emulator, 32)
+    if memory::read32(emulator.memory, emulator.cartridge, player + 4) != 2147483648 {
+        return 301
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, player + 8) != 2 {
+        return 302
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, player + 44) != tracks {
+        return 303
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, player + 52) != 1752395091 {
+        return 304
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, tracks) != 0 {
+        return 305
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, tracks + 80) != 0 {
+        return 306
+    }
+    return 0
+}
+
+fn test_music_runtime(emulator: write emulator::State) -> u32 {
+    let player: u32 = 50356480
+    let tracks: u32 = 50356736
+    let song: u32 = 50356992
+    memory::write8(emulator.memory, song, 1)
+    memory::write8(emulator.memory, song + 2, 5)
+    memory::write32(emulator.memory, song + 4, 135266304)
+    memory::write32(emulator.memory, song + 8, 136314880)
+    emulator.cpu.registers[0] = player
+    emulator.cpu.registers[1] = song
+    bios::handle_swi(emulator, 33)
+    if memory::read32(emulator.memory, emulator.cartridge, player) != song {
+        return 307
+    }
+    if memory::read8(emulator.memory, emulator.cartridge, tracks) != 192 {
+        return 308
+    }
+    if memory::read32(emulator.memory, emulator.cartridge, tracks + 64) != 136314880 {
+        return 309
+    }
+    bios::handle_swi(emulator, 34)
+    let stopped = memory::read32(emulator.memory, emulator.cartridge, player + 4)
+    if stopped & 2147483648 == 0 {
+        return 310
+    }
+    bios::handle_swi(emulator, 35)
+    let continued = memory::read32(emulator.memory, emulator.cartridge, player + 4)
+    if continued & 2147483648 != 0 {
+        return 311
+    }
+    emulator.cpu.registers[1] = 7
+    bios::handle_swi(emulator, 36)
+    if memory::read16(emulator.memory, emulator.cartridge, player + 36) != 7 {
+        return 312
+    }
+    if memory::read16(emulator.memory, emulator.cartridge, player + 38) != 7 {
+        return 313
+    }
+    if memory::read16(emulator.memory, emulator.cartridge, player + 40) != 256 {
+        return 314
+    }
+    return 0
+}
+
+fn test_bios_sound_music(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    let midi = test_midi_frequency(emulator)
+    if midi != 0 {
+        return midi
+    }
+    let jumps = test_sound_jump_list(emulator)
+    if jumps != 0 {
+        return jumps
+    }
+    let opened = test_music_open(emulator)
+    if opened != 0 {
+        return opened
+    }
+    let runtime = test_music_runtime(emulator)
+    if runtime != 0 {
+        return runtime
+    }
+    bios::hard_reset(emulator)
+    return 0
+}

@@ -1,0 +1,134 @@
+module cpu {
+    module arm {
+        fn condition(cpu: cpu::State, condition: u32) -> bool {
+            if condition >= 14 {
+                return condition == 14
+            }
+            let negative = cpu::flag(cpu, cpu::NEGATIVE)
+            let zero = cpu::flag(cpu, cpu::ZERO)
+            let carry = cpu::flag(cpu, cpu::CARRY)
+            let overflow = cpu::flag(cpu, cpu::OVERFLOW)
+            let conditions = [zero, carry, negative, overflow, carry && zero == false, negative == overflow, zero == false && negative == overflow]
+            conditions[usize.from(condition >> 1)] !=(condition & 1 != 0)
+        }
+
+        fn execute_arm(emulator: write emulator::State, opcode: u32) -> u32 {
+            if condition(emulator.cpu, opcode >> encoding::CONDITION_SHIFT) == false {
+                return 1
+            }
+            if opcode & encoding::SWI_MASK == encoding::SWI {
+                return cpu::execute_swi(emulator, opcode)
+            }
+            if opcode & encoding::BRANCH_EXCHANGE_MASK == encoding::BRANCH_EXCHANGE {
+                return branch_exchange(emulator.cpu, opcode)
+            }
+            if opcode & encoding::MULTIPLY_LONG_MASK == encoding::MULTIPLY_LONG {
+                return execute_multiply_long(emulator.cpu, opcode)
+            }
+            if opcode & encoding::MULTIPLY_MASK == encoding::MULTIPLY {
+                return execute_multiply(emulator.cpu, opcode)
+            }
+            if is_psr(opcode) {
+                return execute_psr(emulator.cpu, opcode)
+            }
+            if opcode & encoding::BRANCH_MASK == encoding::BRANCH {
+                return branch(emulator.cpu, opcode)
+            }
+            return execute_transfer(emulator, opcode)
+        }
+
+        fn execute_transfer(emulator: write emulator::State, opcode: u32) -> u32 {
+            if opcode & encoding::BLOCK_TRANSFER_MASK == encoding::BLOCK_TRANSFER {
+                return execute_block(emulator, opcode)
+            }
+            if opcode & encoding::HALFWORD_TRANSFER_MASK == encoding::HALFWORD_TRANSFER {
+                return execute_halfword(emulator, opcode)
+            }
+            if opcode & encoding::SINGLE_TRANSFER_MASK == encoding::SINGLE_TRANSFER {
+                return execute_single(emulator, opcode)
+            }
+            if opcode & encoding::DATA_MASK == encoding::DATA {
+                return execute_data(emulator.cpu, opcode)
+            }
+            cpu::unknown_instruction(emulator)
+        }
+
+        fn branch(cpu: write cpu::State, opcode: u32) -> u32 {
+            if bits::bit_u32(opcode, encoding::LINK) {
+                cpu.registers[cpu::LR] = cpu.registers[cpu::PC]
+            }
+            let shifted = (opcode & 16777215) << 2
+            let offset = bits::sign_extend_u32(shifted, 26)
+            let visible = cpu::read_register(cpu, cpu::PC)
+            cpu.registers[cpu::PC] = visible.wrapping_add(offset) & memory::WORD_ADDRESS_MASK
+            return 3
+        }
+
+        fn branch_exchange(cpu: write cpu::State, opcode: u32) -> u32 {
+            let target = cpu::read_register(cpu, usize.from(opcode & encoding::REGISTER_MASK))
+            cpu::set_thumb(cpu, target & 1 != 0)
+            cpu::write_register(cpu, cpu::PC, target)
+            return 3
+        }
+
+        fn is_psr(opcode: u32) -> bool {
+            if opcode & encoding::READ_PSR_MASK == encoding::READ_PSR {
+                return true
+            }
+            if opcode & encoding::WRITE_PSR_MASK == encoding::WRITE_PSR_IMMEDIATE {
+                return true
+            }
+            return opcode & encoding::WRITE_PSR_MASK == encoding::WRITE_PSR_REGISTER
+        }
+
+        fn execute_psr(cpu: write cpu::State, opcode: u32) -> u32 {
+            if opcode & encoding::READ_PSR_MASK == encoding::READ_PSR {
+                var value = cpu.cpsr
+                if bits::bit_u32(opcode, encoding::SAVED_PSR) {
+                    value = cpu::spsr(cpu, cpu::mode(cpu))
+                }
+                cpu::write_register(cpu, usize.from(opcode >> encoding::DESTINATION_SHIFT & encoding::REGISTER_MASK), value)
+                return 1
+            }
+            let mask = psr_mask(opcode)
+            var value = cpu::read_register(cpu, usize.from(opcode & encoding::REGISTER_MASK))
+            if bits::bit_u32(opcode, encoding::IMMEDIATE) {
+                value = bits::rotate_right_u32(opcode & 255, (opcode >> encoding::MULTIPLIER_SHIFT & encoding::REGISTER_MASK) * 2)
+            }
+            if bits::bit_u32(opcode, encoding::SAVED_PSR) {
+                let mode = cpu::mode(cpu)
+                let current = cpu::spsr(cpu, mode)
+                cpu::set_spsr(cpu, mode, current & ~mask | value & mask)
+                return 1
+            }
+            write_cpsr(cpu, value, mask)
+            return 1
+        }
+
+        fn psr_mask(opcode: u32) -> u32 {
+            var mask: u32 = 0
+            var byte: u32 = 0
+            while byte < 4 {
+                if bits::bit_u32(opcode, 16 + byte) {
+                    mask = mask | 255 <<(byte * 8)
+                }
+                byte = byte + 1
+            }
+            return mask
+        }
+
+        fn write_cpsr(cpu: write cpu::State, value: u32, mask: u32) -> void {
+            let old_mode = cpu::mode(cpu)
+            var writable = mask
+            if old_mode == cpu::USER_MODE {
+                writable = mask & cpu::CONDITION_FLAGS
+            }
+            let next = cpu.cpsr & ~writable | value & writable
+            let next_mode = next & cpu::MODE_MASK
+            cpu::save_mode(cpu, old_mode)
+            cpu::load_mode(cpu, next_mode)
+            cpu.cpsr = next
+            return
+        }
+    }
+}

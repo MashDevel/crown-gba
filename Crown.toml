@@ -1,0 +1,7 @@
+[package]
+name = "gba_crown"
+sources = ["src", "../lang/components/library/src", "../lang/components/library/platform/src", "../lang/components/library/integrations/src"]
+
+[target.macos]
+frameworks = ["AppKit", "Foundation", "Metal", "QuartzCore", "AVFAudio"]
+libraries = ["objc"]

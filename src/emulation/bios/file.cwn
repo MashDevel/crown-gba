@@ -1,0 +1,57 @@
+module bios {
+    fn load(path: TextView, memory: write memory::State) -> u32 {
+        let opened = host::open_path_file(path, 0)
+        match move opened {
+            Some(file) => {
+                return load_bios_file(move file, memory)
+            }
+            None => {
+                return 20
+            }
+        }
+    }
+
+    fn load_bios_file(file: take host::File, memory: write memory::State) -> u32 {
+        let size = host::seek_host_file(file, 0, 2)
+        if size <= 0 {
+            return 21
+        }
+        if host::seek_host_file(file, 0, 0) < 0 {
+            return 22
+        }
+        var length = usize.from(size)
+        if length > memory::BIOS_SIZE {
+            length = memory::BIOS_SIZE
+        }
+        let allocated = host::allocate_buffer(length)
+        match move allocated {
+            Ok(buffer) => {
+                var loaded_buffer = move buffer
+                let loaded = host::read_host_file(file, loaded_buffer, length)
+                if loaded == false {
+                    return 23
+                }
+                copy_from_host(memory, loaded_buffer)
+                return 0
+            }
+            Err(code) => {
+                return code
+            }
+        }
+    }
+
+    fn copy_from_host(memory: write memory::State, buffer: host::Buffer) -> void {
+        bytes::clear_vector(memory.bios)
+        var index: usize = 0
+        let length = host::buffer_length(buffer)
+        while index < length {
+            memory.bios[index] = host::buffer_get(buffer, index)
+            index = index + 1
+        }
+        memory.bios_loaded = length != 0
+        if memory.bios_loaded {
+            initialize_bios_boot(memory)
+        }
+        return
+    }
+}

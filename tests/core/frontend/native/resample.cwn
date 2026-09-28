@@ -1,0 +1,80 @@
+fn audio_samples(frames: usize, value: i32) -> Vec<i32> {
+    var samples = Vec<i32>.new()
+    for index in 0..frames {
+        index;
+        samples.push(value);
+        samples.push(-value)
+    }
+    return move samples
+}
+
+fn test_resampling() -> u32 {
+    var ring = app::sample_ring()
+    if app::ring_sample(ring) != 0.0 {
+        return 20
+    }
+    if app::ring_push(ring, audio_samples(32768, 0), 32768) {
+        return 21
+    }
+    for index in 0..32 {
+        index
+        if app::ring_push(ring, audio_samples(1024, 512), 32768) == false {
+            return 22
+        }
+        while app::ring_frames(ring) != 0 {
+            let left = app::ring_sample(ring)
+            let right = app::ring_sample(ring)
+            if left != 0.75 || right != -0.75 {
+                return 23
+            }
+        }
+    }
+    if ring.phase != 0 {
+        return 24
+    }
+    return test_invalid_samples()
+}
+
+fn test_invalid_samples() -> u32 {
+    var ring = app::sample_ring()
+    if app::ring_push(ring, audio_samples(1, 1000), 0) {
+        return 25
+    }
+    if app::ring_push(ring, audio_samples(1, 1000), 262145) {
+        return 26
+    }
+    var odd = Vec<i32>.new()
+    odd.push(1)
+    if app::ring_push(ring, odd, 48000) {
+        return 27
+    }
+    return 0
+}
+
+fn test_buffer_format() -> u32 {
+    if integration::audio::buffer_frames(0, 8192) != 1024 {
+        return 30
+    }
+    if integration::audio::buffer_frames(18446744073709551615, 65536) != 4096 {
+        return 31
+    }
+    if integration::audio::buffer_frames(1024, 7) != 0 {
+        return 32
+    }
+    let format = integration::audio::audio_format(app::OUTPUT_RATE)
+    if format.length() != 34 || format[0] != 128 || format[1] != 15 {
+        return 33
+    }
+    if format[20] != 283 || format[26] != 48000 || format[32] != 2 {
+        return 34
+    }
+    return 0
+}
+
+fn test_linux_audio() -> u32 {
+    let samples = test_resampling()
+    if samples != 0 {
+        return samples
+    }
+    return test_buffer_format()
+}

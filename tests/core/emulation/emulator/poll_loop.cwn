@@ -1,0 +1,291 @@
+fn new_poll_test_emulator(variant: read u32) -> emulator::State {
+    var words = Vec<u32>.new()
+    words.push(0)
+    let cartridge = cartridge::Image {
+        data: move words, length: 4, mask: 3
+    }
+    var emulator = emulator::new(move cartridge)
+    prepare_poll_test(emulator, variant)
+    if variant == 2 {
+        audio::write_master(emulator.audio, 128)
+    }
+    if variant == 3 {
+        timers::timer_write_register(emulator.memory, 67109120, 65400)
+        timers::timer_write_register(emulator.memory, 67109122, 128)
+    }
+    if variant == 4 {
+        memory::io_store16(emulator.memory, 512, 1)
+        memory::io_store16(emulator.memory, 514, 1)
+        memory::io_store16(emulator.memory, 520, 1)
+        cpu::set_flag(emulator.cpu, 7, true)
+    }
+    if variant == 5 {
+        emulator.cpu.registers[15] = 50364672
+    }
+    emulator::run_steps(emulator, 3)
+    return move emulator
+}
+
+fn prepare_poll_test(emulator: write emulator::State, variant: read u32) -> void {
+    var base: u32 = 0
+    var data: u32 = 1
+    if variant == 6 {
+        base = 7;
+        data = 12
+    }
+    var line: u16 = 200
+    var compare: u32 = 159
+    var branch: u32 = 2332033020
+    if variant % 2 != 0 {
+        line = 50;
+        compare = 160;
+        branch = 989855740
+    }
+    memory::write32(emulator.memory, 50331904, 3788505264 | base << 16 | data << 12)
+    memory::write32(emulator.memory, 50331908, 3813670912 | data << 16 | compare)
+    memory::write32(emulator.memory, 50331912, branch)
+    emulator.cpu.registers[usize.from(base)] = 67108870
+    emulator.cpu.registers[15] = 50331904
+    emulator.devices.vcount = line
+    memory::io_store16(emulator.memory, 6, line)
+    return
+}
+
+fn compare_poll_cpu(actual: read emulator::State, expected: read emulator::State) -> u32 {
+    var register: usize = 0
+    while register < 16 {
+        if actual.cpu.registers[register] != expected.cpu.registers[register] {
+            return 441
+        }
+        register = register + 1
+    }
+    if actual.cpu.cpsr != expected.cpu.cpsr {
+        return 442
+    }
+    if actual.cycles != expected.cycles {
+        return 443
+    }
+    if actual.instructions != expected.instructions {
+        return 444
+    }
+    if actual.last_open_bus != expected.last_open_bus {
+        return 445
+    }
+    if actual.access_penalty_cycles != expected.access_penalty_cycles {
+        return 446
+    }
+    if actual.gamepak_seq_valid != expected.gamepak_seq_valid {
+        return 447
+    }
+    return 0
+}
+
+fn compare_poll_devices(actual: read emulator::State, expected: read emulator::State) -> u32 {
+    if actual.devices.scanline_cycles != expected.devices.scanline_cycles {
+        return 448
+    }
+    if actual.devices.vcount != expected.devices.vcount {
+        return 449
+    }
+    if actual.devices.frames != expected.devices.frames {
+        return 450
+    }
+    if actual.audio.sample_clock != expected.audio.sample_clock {
+        return 453
+    }
+    if actual.audio.frame_clock != expected.audio.frame_clock {
+        return 454
+    }
+    if actual.audio.channel_clock != expected.audio.channel_clock {
+        return 455
+    }
+    return compare_poll_timers(actual, expected)
+}
+
+fn compare_poll_timers(actual: read emulator::State, expected: read emulator::State) -> u32 {
+    var timer: usize = 0
+    while timer < 4 {
+        if actual.memory.timer_counter[timer] != expected.memory.timer_counter[timer] {
+            return 451
+        }
+        if actual.memory.timer_cycles[timer] != expected.memory.timer_cycles[timer] {
+            return 452
+        }
+        timer = timer + 1
+    }
+    return compare_poll_events(actual, expected)
+}
+
+fn compare_poll_events(actual: read emulator::State, expected: read emulator::State) -> u32 {
+    if memory::io_read16(actual.memory, 514) != memory::io_read16(expected.memory, 514) {
+        return 460
+    }
+    if actual.audio.sample_count != expected.audio.sample_count {
+        return 461
+    }
+    if actual.audio.samples.length() != expected.audio.samples.length() {
+        return 462
+    }
+    if actual.next_gamepak_seq_addr != expected.next_gamepak_seq_addr {
+        return 463
+    }
+    if actual.next_gamepak_seq_width != expected.next_gamepak_seq_width {
+        return 464
+    }
+    var sample: usize = 0
+    while sample < actual.audio.samples.length() {
+        if actual.audio.samples[sample] != expected.audio.samples[sample] {
+            return 465
+        }
+        sample = sample + 1
+    }
+    return compare_poll_cpu(actual, expected)
+}
+
+fn test_poll_equivalence(variant: read u32) -> u32 {
+    var actual = new_poll_test_emulator(variant)
+    var expected = new_poll_test_emulator(variant)
+    if emulator::skip_poll_loop(actual) == false {
+        return 440
+    }
+    if actual.instructions <= 3 {
+        return 456
+    }
+    while expected.instructions < actual.instructions {
+        emulator::step(expected)
+    }
+    let compared = compare_poll_devices(actual, expected)
+    if compared != 0 {
+        return compared
+    }
+    emulator::run_frames(actual, 1)
+    while expected.devices.frames < actual.devices.frames {
+        emulator::step(expected)
+    }
+    return compare_poll_devices(actual, expected)
+}
+
+fn prepare_poll_cpu_guard(emulator: write emulator::State, variant: read u32) -> void {
+    if variant == 0 {
+        emulator.cpu.halted = true
+    }
+    if variant == 1 {
+        cpu::set_thumb(emulator.cpu, true)
+    }
+    if variant == 2 {
+        emulator.cpu.intr_wait_mask = 1
+    }
+    if variant == 3 {
+        memory::io_store16(emulator.memory, 512, 1)
+        memory::io_store16(emulator.memory, 514, 1)
+        memory::io_store16(emulator.memory, 520, 1)
+        cpu::set_flag(emulator.cpu, 7, false)
+    }
+    if variant == 4 {
+        keypad::write_control(emulator.memory, 16385)
+        keypad::set_pressed(emulator.memory, 1)
+    }
+    if variant == 5 {
+        emulator.cpu.registers[1] = 201
+    }
+    if variant == 6 {
+        cpu::set_flag(emulator.cpu, 28, true)
+    }
+    return
+}
+
+fn prepare_poll_event_guard(emulator: write emulator::State, variant: read u32) -> void {
+    if variant == 7 {
+        emulator.devices.scanline_cycles = 1000
+    }
+    if variant == 8 {
+        emulator.dma_cycles_pending = 1
+    }
+    if variant == 9 {
+        emulator.devices.dma_timing[0] = 1
+    }
+    if variant == 10 {
+        memory::write16(emulator.memory, 67108996, 128)
+    }
+    if variant == 11 {
+        audio::write_master(emulator.audio, 128)
+        emulator.audio.sample_clock = 506
+    }
+    if variant == 12 {
+        audio::write_master(emulator.audio, 128)
+        emulator.audio.frame_clock = 32767
+    }
+    if variant == 13 {
+        timers::timer_write_register(emulator.memory, 67109120, 65530)
+        timers::timer_write_register(emulator.memory, 67109122, 128)
+    }
+    return
+}
+
+fn prepare_poll_code_guard(emulator: write emulator::State, variant: read u32) -> void {
+    if variant == 14 {
+        emulator.cpu.registers[15] = 134217728
+    }
+    if variant == 15 {
+        emulator.cpu.registers[15] = 50331905
+    }
+    if variant == 16 {
+        emulator.cpu.registers[15] = 50364412
+    }
+    if variant == 17 {
+        memory::write32(emulator.memory, 50331904, 3787460784)
+    }
+    if variant == 18 {
+        emulator.cpu.registers[0] = 67109120
+    }
+    if variant == 19 {
+        memory::write32(emulator.memory, 50331908, 3813802143)
+    }
+    if variant == 20 {
+        memory::write32(emulator.memory, 50331912, 2332033019)
+    }
+    if variant == 21 {
+        memory::write32(emulator.memory, 50331912, 1258291196)
+        emulator.last_open_bus = 1258291196
+    }
+    return
+}
+
+fn test_poll_guard(variant: read u32) -> u32 {
+    var emulator = new_poll_test_emulator(0)
+    prepare_poll_cpu_guard(emulator, variant)
+    prepare_poll_event_guard(emulator, variant)
+    prepare_poll_code_guard(emulator, variant)
+    let cycles = emulator.cycles
+    let instructions = emulator.instructions
+    if emulator::skip_poll_loop(emulator) {
+        return 457
+    }
+    if emulator.cycles != cycles {
+        return 458
+    }
+    if emulator.instructions != instructions {
+        return 459
+    }
+    return 0
+}
+
+fn test_poll_loops() -> u32 {
+    var variant: u32 = 0
+    while variant < 7 {
+        let result = test_poll_equivalence(variant)
+        if result != 0 {
+            return result
+        }
+        variant = variant + 1
+    }
+    variant = 0
+    while variant < 22 {
+        let result = test_poll_guard(variant)
+        if result != 0 {
+            return result
+        }
+        variant = variant + 1
+    }
+    return 0
+}

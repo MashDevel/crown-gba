@@ -1,0 +1,119 @@
+module cpu {
+    module thumb {
+        fn execute_thumb(emulator: write emulator::State, opcode: u32) -> u32 {
+            let group = opcode >> 14 & 3
+            if group == 0 {
+                return execute_arithmetic(emulator.cpu, opcode)
+            }
+            if group == 1 {
+                return execute_register(emulator, opcode)
+            }
+            if group == 2 {
+                return execute_stack(emulator, opcode)
+            }
+            execute_control(emulator, opcode)
+        }
+
+        fn execute_arithmetic(cpu: write cpu::State, opcode: u32) -> u32 {
+            if opcode & encoding::ADD_SUB_MASK == encoding::ADD_SUB {
+                return add_sub(cpu, opcode)
+            }
+            if opcode & encoding::SHIFT_MASK == encoding::SHIFT {
+                return shift_immediate(cpu, opcode)
+            }
+            immediate(cpu, opcode)
+        }
+
+        fn execute_register(emulator: write emulator::State, opcode: u32) -> u32 {
+            if opcode & encoding::ALU_MASK == encoding::ALU {
+                return alu(emulator.cpu, opcode)
+            }
+            if opcode & encoding::HIGH_REGISTER_MASK == encoding::HIGH_REGISTER {
+                return high(emulator.cpu, opcode)
+            }
+            if opcode & encoding::LOAD_PC_MASK == encoding::LOAD_PC {
+                return load_pc(emulator, opcode)
+            }
+            if opcode & encoding::TRANSFER_REGISTER_MASK == encoding::TRANSFER_REGISTER {
+                return transfer_register(emulator, opcode, false)
+            }
+            if opcode & encoding::TRANSFER_REGISTER_MASK == encoding::TRANSFER_SIGNED {
+                return transfer_register(emulator, opcode, true)
+            }
+            transfer_immediate(emulator, opcode, false)
+        }
+
+        fn execute_stack(emulator: write emulator::State, opcode: u32) -> u32 {
+            if opcode & encoding::TRANSFER_HALFWORD_MASK == encoding::TRANSFER_HALFWORD {
+                return transfer_immediate(emulator, opcode, true)
+            }
+            if opcode & encoding::TRANSFER_SP_MASK == encoding::TRANSFER_SP {
+                return transfer_sp(emulator, opcode)
+            }
+            if opcode & encoding::ADJUST_SP_MASK == encoding::ADJUST_SP {
+                return adjust_sp(emulator.cpu, opcode)
+            }
+            if opcode & encoding::ADD_SP_PC_MASK == encoding::ADD_SP_PC {
+                return add_sp_pc(emulator.cpu, opcode)
+            }
+            if opcode & encoding::PUSH_POP_MASK == encoding::PUSH_POP {
+                return push_pop(emulator, opcode)
+            }
+            cpu::unknown_instruction(emulator)
+        }
+
+        fn execute_control(emulator: write emulator::State, opcode: u32) -> u32 {
+            if opcode & encoding::SWI_MASK == encoding::SWI {
+                return cpu::execute_swi(emulator, opcode)
+            }
+            if opcode & encoding::MULTIPLE_MASK == encoding::MULTIPLE {
+                return multiple(emulator, opcode)
+            }
+            if opcode & encoding::CONDITIONAL_BRANCH_MASK == encoding::CONDITIONAL_BRANCH {
+                return conditional_branch(emulator.cpu, opcode)
+            }
+            if opcode & encoding::BRANCH_MASK == encoding::LINK_PREFIX {
+                return link_prefix(emulator.cpu, opcode)
+            }
+            if opcode & encoding::BRANCH_MASK == encoding::LINK_SUFFIX {
+                return link_suffix(emulator.cpu, opcode)
+            }
+            if opcode & encoding::BRANCH_MASK == encoding::BRANCH {
+                return unconditional_branch(emulator.cpu, opcode)
+            }
+            cpu::unknown_instruction(emulator)
+        }
+
+        fn conditional_branch(cpu: write cpu::State, opcode: u32) -> u32 {
+            if cpu::arm::condition(cpu, opcode >> 8 & 15) == false {
+                return 1
+            }
+            let offset = bits::sign_extend_u32((opcode & 255) << 1, 9)
+            let visible = cpu::read_register(cpu, cpu::PC)
+            cpu.registers[cpu::PC] = visible.wrapping_add(offset)
+            return 3
+        }
+
+        fn unconditional_branch(cpu: write cpu::State, opcode: u32) -> u32 {
+            let offset = bits::sign_extend_u32((opcode & 2047) << 1, 12)
+            let visible = cpu::read_register(cpu, cpu::PC)
+            cpu.registers[cpu::PC] = visible.wrapping_add(offset)
+            return 3
+        }
+
+        fn link_prefix(cpu: write cpu::State, opcode: u32) -> u32 {
+            let offset = bits::sign_extend_u32(opcode & 2047, 11) << 12
+            let visible = cpu::read_register(cpu, cpu::PC)
+            cpu.registers[cpu::LR] = visible.wrapping_add(offset)
+            return 1
+        }
+
+        fn link_suffix(cpu: write cpu::State, opcode: u32) -> u32 {
+            let next = cpu::read_register(cpu, cpu::PC)
+            let target = cpu.registers[cpu::LR].wrapping_add((opcode & 2047) << 1)
+            cpu.registers[cpu::LR] = next.wrapping_sub(2) | 1
+            cpu.registers[cpu::PC] = target & memory::HALFWORD_ADDRESS_MASK
+            return 3
+        }
+    }
+}

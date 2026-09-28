@@ -1,0 +1,258 @@
+fn run_emulator_cases(emulator: write emulator::State, cases: Slice<fn(write emulator::State) -> u32>) -> u32 {
+    var index: usize = 0
+    while index < cases.length() {
+        let run = cases[index]
+        let result = run(emulator)
+        if result != 0 {
+            return result
+        }
+        index = index + 1
+    }
+    0
+}
+
+fn run_bios_tests(emulator: write emulator::State) -> u32 {
+    let cases = [test_lz77, test_run_length, test_diff, test_huffman, test_bit_unpack, test_compression_edges, test_bios_affine, test_bios_system, test_bios_sound_driver, test_bios_sound_music]
+    loan read cases as values {
+        let result = run_emulator_cases(emulator, values)
+        if result != 0 {
+            return result
+        }
+    }
+    let timers = test_timers(emulator.memory)
+    if timers != 0 {
+        return timers
+    }
+    test_timer(emulator)
+}
+
+fn run_cpu_bus_tests(rom: TextView, emulator: write emulator::State) -> u32 {
+    let keypad = test_keypad(emulator);
+    if keypad != 0 {
+        return keypad
+    }
+    let conditions = test_arm_conditions(emulator);
+    if conditions != 0 {
+        return conditions
+    }
+    let exceptions = test_cpu_exceptions(emulator);
+    if exceptions != 0 {
+        return exceptions
+    }
+    let bios = run_bios_execution_tests(rom, emulator);
+    if bios != 0 {
+        return bios
+    }
+    let bus = run_bus_tests(emulator);
+    if bus != 0 {
+        return bus
+    }
+    test_cpu_edges(emulator)
+}
+
+fn run_bios_execution_tests(rom: TextView, emulator: write emulator::State) -> u32 {
+    let bios_memory = test_bios_memory(emulator);
+    if bios_memory != 0 {
+        return bios_memory
+    }
+    let bios_file = test_bios_file(rom, emulator);
+    if bios_file != 0 {
+        return bios_file
+    }
+    let cases = [test_bios_execution, test_bios_irq_execution, test_hle_irq_return, test_nested_hle_irq]
+    loan read cases as values {
+        return run_emulator_cases(emulator, values)
+    }
+}
+
+fn run_bus_tests(emulator: write emulator::State) -> u32 {
+    let bytes = test_memory_byte_order();
+    if bytes != 0 {
+        return bytes
+    }
+    let wrapping = test_cartridge_wrapping();
+    if wrapping != 0 {
+        return wrapping
+    }
+    let signatures = test_cartridge_signatures();
+    if signatures != 0 {
+        return signatures
+    }
+    let video = test_video_memory_writes(emulator);
+    if video != 0 {
+        return video
+    }
+    let ppu = test_ppu_register_writes(emulator.memory);
+    if ppu != 0 {
+        return ppu
+    }
+    let open_bus = test_open_bus(emulator);
+    if open_bus != 0 {
+        return open_bus
+    }
+    let mapped = test_mapped_io_bus_access(emulator);
+    if mapped != 0 {
+        return mapped
+    }
+    let system = test_system_register_writes(emulator.memory);
+    if system != 0 {
+        return system
+    }
+    test_bus_timing(emulator)
+}
+
+fn run_storage_audio_tests(save: read TextView, emulator: write emulator::State) -> u32 {
+    let arguments = test_cli_arguments();
+    if arguments != 0 {
+        return arguments
+    }
+    let backup = test_backup(emulator);
+    if backup != 0 {
+        return backup
+    }
+    let flash = test_flash_protocol(emulator);
+    if flash != 0 {
+        return flash
+    }
+    let eeprom = test_eeprom(emulator);
+    if eeprom != 0 {
+        return eeprom
+    }
+    let save_file = test_save_file(save, emulator);
+    if save_file != 0 {
+        return save_file
+    }
+    let path_encoding = test_host_path_encoding();
+    if path_encoding != 0 {
+        return path_encoding
+    }
+    let empty_save = test_empty_save_file(save, emulator);
+    if empty_save != 0 {
+        return empty_save
+    }
+    return test_audio(emulator)
+}
+
+fn run_ppu_tests(emulator: write emulator::State) -> u32 {
+    let order = test_layer_order();
+    if order != 0 {
+        return order
+    }
+    let affine = test_affine_background(emulator);
+    if affine != 0 {
+        return affine
+    }
+    let bitmap = test_bitmap_affine(emulator);
+    if bitmap != 0 {
+        return bitmap
+    }
+    let controls = test_ppu_controls(emulator);
+    if controls != 0 {
+        return controls
+    }
+    let effects = test_ppu_effects();
+    if effects != 0 {
+        return effects
+    }
+    let suppressed = test_ppu_render_suppression(emulator);
+    if suppressed != 0 {
+        return suppressed
+    }
+    let windows = test_ppu_windows(emulator);
+    if windows != 0 {
+        return windows
+    }
+    let object = test_object_affine();
+    if object != 0 {
+        return object
+    }
+    return test_object_budget()
+}
+
+fn run_dma_tests(emulator: write emulator::State) -> u32 {
+    let registers = test_dma_registers(emulator);
+    if registers != 0 {
+        return registers
+    }
+    let timing = test_dma_timing_masks(emulator);
+    if timing != 0 {
+        return timing
+    }
+    let quiet = test_quiet_device_advance(emulator);
+    if quiet != 0 {
+        return quiet
+    }
+    let audio = test_pending_audio_device_advance(emulator);
+    if audio != 0 {
+        return audio
+    }
+    let halted = test_halted_device_advance(emulator);
+    if halted != 0 {
+        return halted
+    }
+    let blocked = test_hblank_dma_block(emulator);
+    if blocked != 0 {
+        return blocked
+    }
+    let elapsed = test_dma_elapsed_cycles(emulator);
+    if elapsed != 0 {
+        return elapsed
+    }
+    return test_display_timing(emulator)
+}
+
+fn run_loaded_tests(arguments: read Arguments, emulator: write emulator::State) -> u32 {
+    let integrity = test_audio_integrity(emulator)
+    if integrity != 0 {
+        return integrity
+    }
+    let linux = test_linux_frontend()
+    if linux != 0 {
+        return linux
+    }
+    let input = test_native_input();
+    if input != 0 {
+        return input
+    }
+    let native_state = test_native_frontend_state();
+    if native_state != 0 {
+        return native_state
+    }
+    let bios = run_bios_tests(emulator);
+    if bios != 0 {
+        return bios
+    }
+    let core = run_cpu_bus_tests(arguments[1], emulator);
+    if core != 0 {
+        return core
+    }
+    let storage = run_storage_audio_tests(arguments[2], emulator)
+    if storage != 0 {
+        return storage
+    }
+    let ppu = run_ppu_tests(emulator);
+    if ppu != 0 {
+        return ppu
+    }
+    return run_dma_tests(emulator)
+}
+
+fn run_tests(arguments: read Arguments) -> u32 {
+    if arguments.length() < 3 {
+        return 20
+    }
+    let loaded = cartridge::load(arguments[1])
+    match move loaded {
+        Ok(cartridge) => {
+            var emulator = emulator::new(move cartridge)
+            return run_loaded_tests(arguments, emulator)
+        }
+        Err(code) => {
+            return code
+        }
+    }
+}
+
+fn main(arguments: read Arguments) -> u32 {
+    return run_tests(arguments)
+}

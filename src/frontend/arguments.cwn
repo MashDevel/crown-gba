@@ -1,0 +1,121 @@
+module cli {
+    const MISSING_CARTRIDGE: u32 = 2
+    const MISSING_ARGUMENT: u32 = 3
+    const CONFLICTING_ARGUMENT: u32 = 4
+    const INVALID_COUNT: u32 = 5
+    const NATIVE_UNAVAILABLE: u32 = 81
+
+    copy enum Run {
+        Interactive, Frames(u64), Steps(u64)
+    }
+    copy enum Counted {
+        Frames, Steps
+    }
+    copy struct CountRequest {
+        index: usize, kind: Counted
+    }
+    copy struct Selection {
+        bios: Option<usize>, screenshot: Option<usize>, run: Run
+    }
+
+    fn parse_command(arguments: Arguments) -> Result<Selection, u32> {
+        if arguments.length() < 2 {
+            return Err(MISSING_CARTRIDGE)
+        }
+        var selection = Selection {
+            bios: None(), screenshot: None(), run: Run::Interactive()
+        }
+        var index: usize = 2
+        while index < arguments.length() {
+            index = consume(arguments, selection, index)?
+        }
+        Ok(selection)
+    }
+
+    fn consume(arguments: Arguments, selection: write Selection, index: usize) -> Result<usize, u32> {
+        match arguments[index] {
+            "--headless" => consume_counted(arguments, selection, CountRequest {
+                    index: index, kind: Counted::Frames()
+                })
+            "--steps" => consume_counted(arguments, selection, CountRequest {
+                    index: index, kind: Counted::Steps()
+                })
+            "screenshot" => {
+                select_run(selection, Run::Frames(1))?;
+                consume_screenshot(arguments, selection, index)
+            }
+            "--screenshot" => consume_screenshot(arguments, selection, index)
+            _ => {
+                if is_option(arguments[index]) {
+                    return Err(CONFLICTING_ARGUMENT)
+                }
+                match selection.bios {
+                    Some(previous) => {
+                        previous;
+                        return Err(CONFLICTING_ARGUMENT)
+                    }
+                    None => {
+                    }
+                }
+                selection.bios = Some(index)
+                Ok(index + 1)
+            }
+        }
+    }
+
+    fn is_option(value: TextView) -> bool {
+        std::text::starts(value, "--")
+    }
+
+    fn consume_counted(arguments: Arguments, selection: write Selection, request: CountRequest) -> Result<usize, u32> {
+        let index = request.index
+        if arguments.length() <= index + 1 {
+            return Err(MISSING_ARGUMENT)
+        }
+        let count = parse_count(arguments[index + 1])?
+        let run = if request.kind == Counted::Frames() {
+            Run::Frames(count)
+        } else {
+            Run::Steps(count)
+        }
+        select_run(selection, run)?
+        Ok(index + 2)
+    }
+
+    fn select_run(selection: write Selection, run: Run) -> Result<void, u32> {
+        match selection.run {
+            Run::Interactive => {
+                selection.run = run;
+                Ok(())
+            }
+            _ => Err(CONFLICTING_ARGUMENT)
+        }
+    }
+
+    fn consume_screenshot(arguments: Arguments, selection: write Selection, index: usize) -> Result<usize, u32> {
+        if arguments.length() <= index + 1 {
+            return Err(MISSING_ARGUMENT)
+        }
+        match selection.screenshot {
+            Some(previous) => {
+                previous;
+                return Err(CONFLICTING_ARGUMENT)
+            }
+            None => {
+            }
+        }
+        selection.screenshot = Some(index + 1)
+        Ok(index + 2)
+    }
+
+    fn parse_count(value: TextView) -> Result<u64, u32> {
+        let parsed = std::text::unsigned(value)
+        match move parsed {
+            Ok(count) => Ok(count)
+            Err(error) => {
+                error;
+                Err(INVALID_COUNT)
+            }
+        }
+    }
+}

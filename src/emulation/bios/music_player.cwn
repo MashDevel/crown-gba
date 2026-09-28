@@ -1,0 +1,228 @@
+module bios {
+    fn music_player_open(emulator: write emulator::State) -> void {
+        let player = emulator.cpu.registers[0]
+        let tracks = emulator.cpu.registers[1]
+        var count = emulator.cpu.registers[2]
+        if count > 16 {
+            count = 16
+        }
+        let area = bios::sound::area(emulator)
+        if bios::sound::area_active(emulator, area) == false {
+            return
+        }
+        if player == 0 {
+            return
+        }
+        if tracks == 0 {
+            return
+        }
+        if count == 0 {
+            return
+        }
+        memory::write32(emulator.memory, area, bios::sound::DRIVER_BUSY)
+        music_clear_words(emulator.memory, player, 64)
+        memory::write32(emulator.memory, player + 4, bios::sound::PLAYER_PAUSED)
+        memory::write8(emulator.memory, player + 8, u8.from(count))
+        memory::write32(emulator.memory, player + 44, tracks)
+        music_clear_track_flags(emulator.memory, tracks, count)
+        music_link_player(emulator, area, player)
+        memory::write32(emulator.memory, player + 52, bios::sound::DRIVER_READY)
+        memory::write32(emulator.memory, area, bios::sound::DRIVER_READY)
+        return
+    }
+
+    fn music_clear_words(memory: write memory::State, address: u32, size: u32) -> void {
+        var offset: u32 = 0
+        while offset < size {
+            memory::write32(memory, address + offset, 0)
+            offset = offset + 4
+        }
+        return
+    }
+
+    fn music_clear_track_flags(memory: write memory::State, tracks: u32, count: u32) -> void {
+        var index: u32 = 0
+        while index < count {
+            memory::write8(memory, tracks + index * 80, 0)
+            index = index + 1
+        }
+        return
+    }
+
+    fn music_link_player(emulator: write emulator::State, area: u32, player: u32) -> void {
+        let main = memory::read32(emulator.memory, emulator.cartridge, area + 32)
+        let head = memory::read32(emulator.memory, emulator.cartridge, area + 36)
+        if main != 0 {
+            memory::write32(emulator.memory, player + 56, main)
+            memory::write32(emulator.memory, player + 60, head)
+        }
+        memory::write32(emulator.memory, area + 36, player)
+        return
+    }
+
+    fn music_player_ready(emulator: write emulator::State, player: u32) -> bool {
+        if player == 0 {
+            return false
+        }
+        let identifier = memory::read32(emulator.memory, emulator.cartridge, player + 52)
+        return identifier == bios::sound::DRIVER_READY
+    }
+
+    fn music_player_start(emulator: write emulator::State) -> void {
+        let player = emulator.cpu.registers[0]
+        let song = emulator.cpu.registers[1]
+        if music_player_ready(emulator, player) == false {
+            return
+        }
+        if song == 0 {
+            return
+        }
+        if music_start_allowed(emulator, player, song) == false {
+            return
+        }
+        memory::write32(emulator.memory, player + 52, bios::sound::DRIVER_BUSY)
+        music_initialize_player(emulator, player, song)
+        music_initialize_tracks(emulator, player, song)
+        memory::write32(emulator.memory, player + 52, bios::sound::DRIVER_READY)
+        return
+    }
+
+    fn music_start_allowed(emulator: write emulator::State, player: u32, song: u32) -> bool {
+        let policy = memory::read8(emulator.memory, emulator.cartridge, player + 11)
+        if policy == 0 {
+            return true
+        }
+        let current_song = memory::read32(emulator.memory, emulator.cartridge, player)
+        let tracks = memory::read32(emulator.memory, emulator.cartridge, player + 44)
+        var first_flags: u8 = 0
+        if tracks != 0 {
+            first_flags = memory::read8(emulator.memory, emulator.cartridge, tracks)
+        }
+        let status = memory::read32(emulator.memory, emulator.cartridge, player + 4)
+        var idle = current_song == 0
+        if first_flags & 64 == 0 {
+            idle = true
+        }
+        var paused = status & 65535 == 0
+        if status & bios::sound::PLAYER_PAUSED != 0 {
+            paused = true
+        }
+        if idle {
+            if paused {
+                return true
+            }
+        }
+        let priority = memory::read8(emulator.memory, emulator.cartridge, player + 9)
+        let next_priority = memory::read8(emulator.memory, emulator.cartridge, song + 2)
+        return priority <= next_priority
+    }
+
+    fn music_initialize_player(emulator: write emulator::State, player: u32, song: u32) -> void {
+        let tone = memory::read32(emulator.memory, emulator.cartridge, song + 4)
+        let priority = memory::read8(emulator.memory, emulator.cartridge, song + 2)
+        memory::write32(emulator.memory, player + 4, 0)
+        memory::write32(emulator.memory, player, song)
+        memory::write32(emulator.memory, player + 48, tone)
+        memory::write8(emulator.memory, player + 9, priority)
+        memory::write32(emulator.memory, player + 12, 0)
+        memory::write16(emulator.memory, player + 28, 150)
+        memory::write16(emulator.memory, player + 30, 256)
+        memory::write16(emulator.memory, player + 32, 150)
+        memory::write16(emulator.memory, player + 34, 0)
+        memory::write16(emulator.memory, player + 36, 0)
+        return
+    }
+
+    fn music_initialize_tracks(emulator: write emulator::State, player: u32, song: u32) -> void {
+        let tracks = memory::read32(emulator.memory, emulator.cartridge, player + 44)
+        let available = memory::read8(emulator.memory, emulator.cartridge, player + 8)
+        var active = memory::read8(emulator.memory, emulator.cartridge, song)
+        if active > available {
+            active = available
+        }
+        var index: u8 = 0
+        while index < available {
+            let track = tracks + u32.from(index) * 80
+            music_stop_track(emulator, track)
+            if index < active {
+                let command = memory::read32(
+                    emulator.memory,
+                    emulator.cartridge,
+                    song + 8 + u32.from(index) * 4
+                )
+                memory::write8(emulator.memory, track, 192)
+                memory::write32(emulator.memory, track + 64, command)
+            }
+            index = index + 1
+        }
+        return
+    }
+
+    fn music_stop_track(emulator: write emulator::State, track: u32) -> void {
+        var channel = memory::read32(emulator.memory, emulator.cartridge, track + 32)
+        var count: u32 = 0
+        while count < 64 {
+            if channel == 0 {
+                break
+            }
+            let next = memory::read32(emulator.memory, emulator.cartridge, channel + 52)
+            memory::write8(emulator.memory, channel, 0)
+            memory::write32(emulator.memory, channel + 44, 0)
+            memory::write32(emulator.memory, channel + 48, 0)
+            memory::write32(emulator.memory, channel + 52, 0)
+            channel = next
+            count = count + 1
+        }
+        memory::write32(emulator.memory, track + 32, 0)
+        return
+    }
+
+    fn music_player_stop(emulator: write emulator::State) -> void {
+        let player = emulator.cpu.registers[0]
+        if music_player_ready(emulator, player) == false {
+            return
+        }
+        let status = memory::read32(emulator.memory, emulator.cartridge, player + 4)
+        memory::write32(emulator.memory, player + 52, bios::sound::DRIVER_BUSY)
+        memory::write32(emulator.memory, player + 4, status | bios::sound::PLAYER_PAUSED)
+        music_stop_player_tracks(emulator, player)
+        memory::write32(emulator.memory, player + 52, bios::sound::DRIVER_READY)
+        return
+    }
+
+    fn music_stop_player_tracks(emulator: write emulator::State, player: u32) -> void {
+        let tracks = memory::read32(emulator.memory, emulator.cartridge, player + 44)
+        var count = memory::read8(emulator.memory, emulator.cartridge, player + 8)
+        if count > 16 {
+            count = 16
+        }
+        var index: u8 = 0
+        while index < count {
+            music_stop_track(emulator, tracks + u32.from(index) * 80)
+            index = index + 1
+        }
+        return
+    }
+
+    fn music_player_continue(emulator: write emulator::State) -> void {
+        let player = emulator.cpu.registers[0]
+        if music_player_ready(emulator, player) == false {
+            return
+        }
+        let status = memory::read32(emulator.memory, emulator.cartridge, player + 4)
+        memory::write32(emulator.memory, player + 4, status & ~bios::sound::PLAYER_PAUSED)
+        return
+    }
+
+    fn music_player_fade_out(emulator: write emulator::State) -> void {
+        let player = emulator.cpu.registers[0]
+        if music_player_ready(emulator, player) == false {
+            return
+        }
+        let speed = u16.from(emulator.cpu.registers[1] & 65535)
+        memory::write16(emulator.memory, player + 38, speed)
+        memory::write16(emulator.memory, player + 36, speed)
+        memory::write16(emulator.memory, player + 40, 256)
+        return
+    }
+}

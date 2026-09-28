@@ -1,0 +1,115 @@
+module video {
+    copy struct Effects {
+        control: u16
+        alpha: u16
+        brightness: u16
+    }
+
+    fn apply_effects(emulator: write emulator::State, line: usize) -> void {
+        let effects = Effects {
+            control: memory::io_read16(emulator.memory, video::BLEND_CONTROL)
+            alpha: memory::io_read16(emulator.memory, video::BLEND_ALPHA)
+            brightness: memory::io_read16(emulator.memory, video::BLEND_BRIGHTNESS)
+        }
+        var x: usize = 0
+        while x < WIDTH {
+            if emulator.ppu.window_effects[x] != 0 {
+                let position = PixelPosition {
+                    index: line * WIDTH + x, x: x
+                }
+                apply_pixel_effect(emulator.ppu, position, effects)
+            }
+            x = x + 1
+        }
+    }
+
+    fn apply_pixel_effect(ppu: write State, position: PixelPosition, effects: Effects) -> void {
+        let x = position.x
+        let below = ppu.second_layers[x]
+        let below_target = ppu.second_priorities[x] != 255 && effects.control &(1 <<(u16.from(below) + 8)) != 0
+        if ppu.semi[x] != 0 {
+            if below_target {
+                blend_pixel(ppu, position, effects.alpha)
+            }
+            return
+        }
+        if effects.control &(1 << u16.from(ppu.layers[x])) == 0 {
+            return
+        }
+        let mode = effects.control >> 6 & 3
+        if mode == 1 && below_target {
+            blend_pixel(ppu, position, effects.alpha);
+            return
+        }
+        if mode == 2 || mode == 3 {
+            ppu.framebuffer[position.index] = brightness_color(ppu.framebuffer[position.index], effects.brightness, mode == 2)
+        }
+    }
+
+    fn blend_pixel(ppu: write State, position: PixelPosition, alpha: u16) -> void {
+        ppu.framebuffer[position.index] = alpha_color(ppu.framebuffer[position.index], ppu.second_colors[position.x], alpha)
+    }
+
+    fn alpha_color(first: u32, second: u32, control: u16) -> u32 {
+        var first_weight = u32.from(control & 31)
+        var second_weight = u32.from(control >> 8 & 31)
+        if first_weight > 16 {
+            first_weight = 16
+        }
+        if second_weight > 16 {
+            second_weight = 16
+        }
+        let weights = [first_weight, second_weight]
+        let first_raw = rgb_to_bgr555(first)
+        let second_raw = rgb_to_bgr555(second)
+        let red = alpha_channel(u32.from(first_raw & 31), u32.from(second_raw & 31), weights)
+        let green = alpha_channel(
+            u32.from(first_raw >> 5 & 31), u32.from(second_raw >> 5 & 31), weights
+        )
+        let blue = alpha_channel(
+            u32.from(first_raw >> 10 & 31), u32.from(second_raw >> 10 & 31), weights
+        )
+        return bgr555_color(u16.from(red | green << 5 | blue << 10))
+    }
+
+    fn alpha_channel(first: u32, second: u32, weights: [u32; 2]) -> u32 {
+        var value = (first * weights[0] + second * weights[1]) / 16
+        if value > 31 {
+            value = 31
+        }
+        return value
+    }
+
+    fn brightness_color(color: u32, control: u16, brighten: bool) -> u32 {
+        var weight = u32.from(control & 31)
+        if weight > 16 {
+            weight = 16
+        }
+        let raw = rgb_to_bgr555(color)
+        let red = brightness_channel(u32.from(raw & 31), weight, brighten)
+        let green = brightness_channel(u32.from(raw >> 5 & 31), weight, brighten)
+        let blue = brightness_channel(u32.from(raw >> 10 & 31), weight, brighten)
+        return bgr555_color(u16.from(red | green << 5 | blue << 10))
+    }
+
+    fn brightness_channel(channel: u32, weight: u32, brighten: bool) -> u32 {
+        if brighten {
+            return channel +(31 - channel) * weight / 16
+        }
+        return channel - channel * weight / 16
+    }
+
+    fn rgb_to_bgr555(color: u32) -> u16 {
+        let red = rgb_channel_to_5(color >> 16 & 255)
+        let green = rgb_channel_to_5(color >> 8 & 255)
+        let blue = rgb_channel_to_5(color & 255)
+        return u16.from(red | green << 5 | blue << 10)
+    }
+
+    fn rgb_channel_to_5(channel: u32) -> u32 {
+        if channel == 0 {
+            return 0
+        }
+        return (channel * 31 + 254) / 255
+    }
+}

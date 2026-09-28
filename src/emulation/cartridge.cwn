@@ -1,0 +1,179 @@
+module cartridge {
+    struct Image {
+        data: Vec<u32>
+        length: usize
+        mask: usize
+    }
+
+    fn load(path: TextView) -> Result<Image, u32> {
+        let opened = host::open_path_file(path, 0)
+        match move opened {
+            Some(file) => {
+                return load_cartridge_file(move file)
+            }
+            None => {
+                return Err(10)
+            }
+        }
+    }
+
+    fn load_cartridge_file(file: take host::File) -> Result<Image, u32> {
+        let size = host::seek_host_file(file, 0, 2)
+        if size <= 0 {
+            return Err(11)
+        }
+        if host::seek_host_file(file, 0, 0) < 0 {
+            return Err(12)
+        }
+        let length = usize.from(size)
+        let allocated = host::allocate_buffer(length)
+        match move allocated {
+            Ok(buffer) => {
+                var loaded_buffer = move buffer
+                let loaded = host::read_host_file(file, loaded_buffer, length)
+                if loaded == false {
+                    return Err(14)
+                }
+                let data = words(loaded_buffer, length)
+                return Ok(Image {
+                        data: move data,
+                        length: length,
+                        mask: power_mask(length)
+                    })
+            }
+            Err(code) => {
+                return Err(13)
+            }
+        }
+    }
+
+    fn words(buffer: host::Buffer, length: usize) -> Vec<u32> {
+        var words = Vec<u32>.with_capacity((length + 3) / 4)
+        var offset: usize = 0
+        while offset < length {
+            var word = u32.from(host::buffer_get(buffer, offset))
+            if offset + 1 < length {
+                word = word | u32.from(host::buffer_get(buffer, offset + 1)) << 8
+            }
+            if offset + 2 < length {
+                word = word | u32.from(host::buffer_get(buffer, offset + 2)) << 16
+            }
+            if offset + 3 < length {
+                word = word | u32.from(host::buffer_get(buffer, offset + 3)) << 24
+            }
+            words.push(word)
+            offset = offset + 4
+        }
+        return move words
+    }
+
+    fn byte(cartridge: Image, offset: usize) -> u8 {
+        let word = cartridge.data[offset / 4]
+        let shift = u32.from(offset % 4) * 8
+        return u8.from(word >> shift & 255)
+    }
+
+    fn read8(cartridge: Image, address: u32) -> u8 {
+        let raw_offset = usize.from(address & memory::ROM_ADDRESS_MASK)
+        let offset = wrapped_index(raw_offset, cartridge.length, cartridge.mask)
+        return byte(cartridge, offset)
+    }
+
+    fn read16(cartridge: Image, address: u32) -> u16 {
+        let aligned = address & memory::HALFWORD_ADDRESS_MASK
+        if cartridge.mask != cartridge.length {
+            if cartridge.length >= 2 {
+                let raw = usize.from(aligned & memory::ROM_ADDRESS_MASK)
+                let first = raw & cartridge.mask
+                let word = cartridge.data[first / 4]
+                if first & 2 == 0 {
+                    return u16.from(word & 65535)
+                }
+                return u16.from(word >> 16)
+            }
+        }
+        let low = read8(cartridge, aligned)
+        let high = read8(cartridge, aligned.wrapping_add(1))
+        return bytes::join_u16(low, high)
+    }
+
+    fn read32(cartridge: Image, address: u32) -> u32 {
+        let aligned = address & memory::WORD_ADDRESS_MASK
+        if cartridge.mask != cartridge.length {
+            if cartridge.length >= 4 {
+                let raw = usize.from(aligned & memory::ROM_ADDRESS_MASK)
+                let first = raw & cartridge.mask
+                return cartridge.data[first / 4]
+            }
+        }
+        let first = read8(cartridge, aligned)
+        let second = read8(cartridge, aligned.wrapping_add(1))
+        let third = read8(cartridge, aligned.wrapping_add(2))
+        let high = read8(cartridge, aligned.wrapping_add(3))
+        let bytes = [first, second, third, high]
+        loan read bytes as source {
+            return std::bytes::read_u32_le(source, 0)
+        }
+    }
+
+    fn power_mask(length: usize) -> usize {
+        let mask = length - 1
+        if length & mask == 0 {
+            return mask
+        }
+        return length
+    }
+
+    fn wrapped_index(raw: usize, length: usize, mask: usize) -> usize {
+        if mask != length {
+            return raw & mask
+        }
+        return raw % length
+    }
+
+    fn save_kind(cartridge: Image) -> backup::Kind {
+        var index: usize = 0
+        while index + 8 <= cartridge.length {
+            let kind = signature_at(cartridge, index)
+            if kind != backup::Kind::Absent() {
+                return kind
+            }
+            index = index + 1
+        }
+        backup::Kind::Absent()
+    }
+
+    fn signature_at(cartridge: Image, index: usize) -> backup::Kind {
+        if char.from(u32.from(byte(cartridge, index))) == 'F' {
+            return flash_signature(cartridge, index)
+        }
+        if signature_matches(cartridge, index, "EEP") {
+            return backup::Kind::Eeprom()
+        }
+        if signature_matches(cartridge, index, "SRAM_") {
+            return backup::Kind::Sram()
+        }
+        backup::Kind::Absent()
+    }
+
+    fn flash_signature(cartridge: Image, index: usize) -> backup::Kind {
+        if signature_matches(cartridge, index, "FLASH") == false {
+            return backup::Kind::Absent()
+        }
+        if signature_matches(cartridge, index, "FLASH1M") {
+            return backup::Kind::Flash128()
+        }
+        backup::Kind::Flash64()
+    }
+
+    fn signature_matches(cartridge: Image, index: usize, signature: Text) -> bool {
+        loan read signature as bytes {
+            for offset in 0..bytes.length() {
+                if byte(cartridge, index + offset) != bytes[offset] {
+                    return false
+                }
+            }
+        }
+        true
+    }
+}

@@ -1,0 +1,301 @@
+module cpu {
+    module arm {
+        struct DataOutcome {
+            value: u32
+            carry: bool
+            overflow: bool
+            update_overflow: bool
+            stores_result: bool
+        }
+
+        struct DataInput {
+            operation: u32
+            left: u32
+            operand: cpu::ShiftResult
+        }
+
+        struct ArithmeticInput {
+            operation: u32
+            left: u32
+            right: u32
+        }
+
+        fn data_operand(cpu: cpu::State, opcode: u32) -> cpu::ShiftResult {
+            if bits::bit_u32(opcode, encoding::IMMEDIATE) {
+                let rotation = (opcode >> encoding::MULTIPLIER_SHIFT & encoding::REGISTER_MASK) * 2
+                let value = bits::rotate_right_u32(opcode & 255, rotation)
+                var carry = cpu::flag(cpu, cpu::CARRY)
+                if rotation != 0 {
+                    carry = value >> 31 != 0
+                }
+                return cpu::ShiftResult {
+                    value: value, carry: carry
+                }
+            }
+            return cpu::arm_shift(cpu, opcode)
+        }
+
+        fn execute_data(cpu: write cpu::State, opcode: u32) -> u32 {
+            let operand = data_operand(cpu, opcode)
+            var register_shift = false
+            if bits::bit_u32(opcode, encoding::IMMEDIATE) == false {
+                register_shift = bits::bit_u32(opcode, encoding::REGISTER_SHIFT)
+            }
+            let left = operand_value(cpu, usize.from(opcode >> encoding::BASE_SHIFT & encoding::REGISTER_MASK), register_shift)
+            let operation = opcode >> encoding::ALU_SHIFT & encoding::ALU_MASK
+            let input = DataInput {
+                operation: operation, left: left, operand: move operand
+            }
+            let outcome = data_outcome(cpu, input)
+            return apply_data(cpu, opcode, outcome) + bits::bool_u32(register_shift)
+        }
+
+        fn operand_value(cpu: cpu::State, register: usize, register_shift: bool) -> u32 {
+            let value = cpu::read_register(cpu, register)
+            if register == cpu::PC {
+                if register_shift {
+                    return value.wrapping_add(4)
+                }
+            }
+            return value
+        }
+
+        fn data_outcome(cpu: cpu::State, input: DataInput) -> DataOutcome {
+            if input.operation <= operation::REVERSE_SUBTRACT {
+                return data_low(input.operation, input.left, input.operand)
+            }
+            if input.operation <= operation::REVERSE_SUBTRACT_CARRY {
+                let arithmetic = ArithmeticInput {
+                    operation: input.operation
+                    left: input.left
+                    right: input.operand.value
+                }
+                return data_arithmetic(cpu, arithmetic)
+            }
+            return data_high(input.operation, input.left, input.operand)
+        }
+
+        fn data_low(operation: u32, left: u32, operand: cpu::ShiftResult) -> DataOutcome {
+            if operation == operation::AND {
+                return logical_outcome(left & operand.value, operand.carry, true)
+            }
+            if operation == operation::XOR {
+                return logical_outcome(left ^ operand.value, operand.carry, true)
+            }
+            if operation == operation::SUBTRACT {
+                return subtract_outcome(left, operand.value, true)
+            }
+            return subtract_outcome(operand.value, left, true)
+        }
+
+        fn data_arithmetic(cpu: cpu::State, input: ArithmeticInput) -> DataOutcome {
+            if input.operation == operation::ADD {
+                return add_outcome(input.left, input.right, true)
+            }
+            if input.operation == operation::ADD_CARRY {
+                return adc_outcome(cpu, input.left, input.right)
+            }
+            if input.operation == operation::SUBTRACT_CARRY {
+                return sbc_outcome(cpu, input.left, input.right)
+            }
+            return logical_outcome(0, false, true)
+        }
+
+        fn data_high(operation: u32, left: u32, operand: cpu::ShiftResult) -> DataOutcome {
+            if operation == operation::TEST {
+                return logical_outcome(left & operand.value, operand.carry, false)
+            }
+            if operation == operation::TEST_EQUAL {
+                return logical_outcome(left ^ operand.value, operand.carry, false)
+            }
+            if operation == operation::COMPARE {
+                return subtract_outcome(left, operand.value, false)
+            }
+            if operation == operation::COMPARE_NEGATIVE {
+                return add_outcome(left, operand.value, false)
+            }
+            if operation == operation::OR {
+                return logical_outcome(left | operand.value, operand.carry, true)
+            }
+            if operation == operation::MOVE {
+                return logical_outcome(operand.value, operand.carry, true)
+            }
+            if operation == operation::BIT_CLEAR {
+                return logical_outcome(left & ~operand.value, operand.carry, true)
+            }
+            return logical_outcome(~operand.value, operand.carry, true)
+        }
+
+        fn logical_outcome(value: u32, carry: bool, should_store: bool) -> DataOutcome {
+            return DataOutcome {
+                value: value
+                carry: carry
+                overflow: false
+                update_overflow: false
+                stores_result: should_store
+            }
+        }
+
+        fn subtract_outcome(left: u32, right: u32, should_store: bool) -> DataOutcome {
+            let result = left.wrapping_sub(right)
+            return DataOutcome {
+                value: result
+                carry: left >= right
+                overflow: bits::sub_overflow_u32(left, right, result)
+                update_overflow: true
+                stores_result: should_store
+            }
+        }
+
+        fn add_outcome(left: u32, right: u32, should_store: bool) -> DataOutcome {
+            let result = left.wrapping_add(right)
+            return DataOutcome {
+                value: result
+                carry: result < left
+                overflow: bits::add_overflow_u32(left, right, result)
+                update_overflow: true
+                stores_result: should_store
+            }
+        }
+
+        fn adc_outcome(cpu: cpu::State, left: u32, right: u32) -> DataOutcome {
+            var carry_value: u32 = 0
+            if cpu::flag(cpu, cpu::CARRY) {
+                carry_value = 1
+            }
+            let partial = left.wrapping_add(right)
+            let result = partial.wrapping_add(carry_value)
+            var carry = partial < left
+            if result < partial {
+                carry = true
+            }
+            let exact = i64.from(i32.from_bits(left)) + i64.from(i32.from_bits(right)) + i64.from(carry_value)
+            var overflow = exact > 2147483647
+            if exact < -2147483648 {
+                overflow = true
+            }
+            return DataOutcome {
+                value: result
+                carry: carry
+                overflow: overflow
+                update_overflow: true
+                stores_result: true
+            }
+        }
+
+        fn sbc_outcome(cpu: cpu::State, left: u32, right: u32) -> DataOutcome {
+            var borrow: u32 = 1
+            if cpu::flag(cpu, cpu::CARRY) {
+                borrow = 0
+            }
+            let partial = left.wrapping_sub(right)
+            let result = partial.wrapping_sub(borrow)
+            var carried = left >= right
+            if partial < borrow {
+                carried = false
+            }
+            let exact = i64.from(i32.from_bits(left)) - i64.from(i32.from_bits(right)) - i64.from(borrow)
+            var overflow = exact > 2147483647
+            if exact < -2147483648 {
+                overflow = true
+            }
+            return DataOutcome {
+                value: result
+                carry: carried
+                overflow: overflow
+                update_overflow: true
+                stores_result: true
+            }
+        }
+
+        fn apply_data(cpu: write cpu::State, opcode: u32, outcome: DataOutcome) -> u32 {
+            let destination = usize.from(opcode >> encoding::DESTINATION_SHIFT & encoding::REGISTER_MASK)
+            let set_flags = bits::bit_u32(opcode, encoding::SET_FLAGS)
+            if outcome.stores_result {
+                if destination == cpu::PC {
+                    if set_flags {
+                        cpu::restore_spsr(cpu)
+                    }
+                    cpu::write_register(cpu, destination, outcome.value)
+                    return 3
+                }
+                cpu::write_register(cpu, destination, outcome.value)
+            }
+            if set_flags {
+                cpu::write_nz(cpu, outcome.value)
+                cpu::set_flag(cpu, cpu::CARRY, outcome.carry)
+                if outcome.update_overflow {
+                    cpu::set_flag(cpu, cpu::OVERFLOW, outcome.overflow)
+                }
+            }
+            return 1
+        }
+
+        fn execute_multiply(cpu: write cpu::State, opcode: u32) -> u32 {
+            let destination = usize.from(opcode >> encoding::BASE_SHIFT & encoding::REGISTER_MASK)
+            let accumulator = usize.from(opcode >> encoding::DESTINATION_SHIFT & encoding::REGISTER_MASK)
+            let multiplier = cpu::read_register(cpu, usize.from(opcode >> encoding::MULTIPLIER_SHIFT & encoding::REGISTER_MASK))
+            let source = cpu::read_register(cpu, usize.from(opcode & encoding::REGISTER_MASK))
+            var result = source.wrapping_mul(multiplier)
+            if bits::bit_u32(opcode, encoding::ACCUMULATE) {
+                result = result.wrapping_add(cpu::read_register(cpu, accumulator))
+            }
+            cpu::write_register(cpu, destination, result)
+            if bits::bit_u32(opcode, encoding::SET_FLAGS) {
+                cpu::write_nz(cpu, result)
+            }
+            return multiply_cycles(multiplier, bits::bit_u32(opcode, encoding::ACCUMULATE))
+        }
+
+        fn execute_multiply_long(cpu: write cpu::State, opcode: u32) -> u32 {
+            let high_register = usize.from(opcode >> encoding::BASE_SHIFT & encoding::REGISTER_MASK)
+            let low_register = usize.from(opcode >> encoding::DESTINATION_SHIFT & encoding::REGISTER_MASK)
+            let right = cpu::read_register(cpu, usize.from(opcode >> encoding::MULTIPLIER_SHIFT & encoding::REGISTER_MASK))
+            let left = cpu::read_register(cpu, usize.from(opcode & encoding::REGISTER_MASK))
+            var product = long_product(left, right, bits::bit_u32(opcode, encoding::SIGNED_MULTIPLY))
+            if bits::bit_u32(opcode, encoding::ACCUMULATE) {
+                let current = u64.from(cpu.registers[high_register]) << 32 | u64.from(cpu.registers[low_register])
+                product = product.wrapping_add(current)
+            }
+            cpu.registers[low_register] = u32.from(product & 4294967295)
+            cpu.registers[high_register] = u32.from(product >> 32)
+            if bits::bit_u32(opcode, encoding::SET_FLAGS) {
+                cpu::set_flag(cpu, cpu::NEGATIVE, product >> 63 != 0)
+                cpu::set_flag(cpu, cpu::ZERO, product == 0)
+            }
+            return multiply_cycles(right, bits::bit_u32(opcode, encoding::ACCUMULATE)) + 1
+        }
+
+        fn multiply_cycles(value: u32, accumulate: bool) -> u32 {
+            let extra = bits::bool_u32(accumulate)
+            let high = value >> 8
+            if high == 0 {
+                return 2 + extra
+            }
+            if high == 16777215 {
+                return 2 + extra
+            }
+            if value >> 16 == 0 {
+                return 3 + extra
+            }
+            if value >> 16 == 65535 {
+                return 3 + extra
+            }
+            if value >> 24 == 0 {
+                return 4 + extra
+            }
+            if value >> 24 == 255 {
+                return 4 + extra
+            }
+            return 5 + extra
+        }
+
+        fn long_product(left: u32, right: u32, signed: bool) -> u64 {
+            if signed {
+                let product = i64.from(i32.from_bits(left)) * i64.from(i32.from_bits(right))
+                return u64.from_bits(product)
+            }
+            return u64.from(left) * u64.from(right)
+        }
+    }
+}

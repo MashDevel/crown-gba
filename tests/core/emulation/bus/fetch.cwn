@@ -1,0 +1,88 @@
+struct FetchCase {
+    address: u32
+    wide: bool
+    charging: bool
+}
+
+struct FetchResult {
+    value: u32
+    open_bus: u32
+    penalty: u32
+    sequential: bool
+}
+
+fn fetch_test_result(emulator: read emulator::State, value: read u32) -> FetchResult {
+    return FetchResult {
+        value: value
+        open_bus: emulator.last_open_bus
+        penalty: emulator.access_penalty_cycles
+        sequential: emulator.gamepak_seq_valid
+    }
+}
+
+fn prepare_fetch_test(emulator: write emulator::State, charging: read bool) -> void {
+    emulator.last_open_bus = 2864434397
+    emulator.access_penalty_cycles = 17
+    emulator.gamepak_seq_valid = true
+    emulator.bus_charging = charging
+    return
+}
+
+fn test_fetch_case(emulator: write emulator::State, input: read FetchCase) -> u32 {
+    prepare_fetch_test(emulator, input.charging)
+    var expected: u32 = 0
+    if input.wide {
+        expected = bus::read32(emulator, input.address)
+    } else {
+        expected = u32.from(bus::read16(emulator, input.address))
+    }
+    let reference = fetch_test_result(emulator, expected)
+    prepare_fetch_test(emulator, input.charging)
+    var actual: u32 = 0
+    if input.wide {
+        actual = bus::fetch32(emulator, input.address)
+    } else {
+        actual = u32.from(bus::fetch16(emulator, input.address))
+    }
+    if actual != reference.value {
+        return 429
+    }
+    if emulator.last_open_bus != reference.open_bus {
+        return 430
+    }
+    if emulator.access_penalty_cycles != reference.penalty {
+        return 431
+    }
+    if emulator.gamepak_seq_valid != reference.sequential {
+        return 432
+    }
+    return 0
+}
+
+fn test_iwram_fetches(emulator: write emulator::State) -> u32 {
+    let first = memory::read32(emulator.memory, emulator.cartridge, 50331648)
+    let last = memory::read32(emulator.memory, emulator.cartridge, 50364412)
+    memory::write32(emulator.memory, 50331648, 287454020)
+    memory::write32(emulator.memory, 50364412, 1432778632)
+    let addresses: [u32; 8] = [50331648, 50331649, 50331650, 50331651, 50364412, 50364414, 50364416, 67108863]
+    var index: usize = 0
+    while index < 32 {
+        let input = FetchCase {
+            address: addresses[index % 8]
+            wide: index % 16 >= 8
+            charging: index >= 16
+        }
+        let result = test_fetch_case(emulator, input)
+        if result != 0 {
+            return result
+        }
+        index = index + 1
+    }
+    memory::write32(emulator.memory, 50331648, first)
+    memory::write32(emulator.memory, 50364412, last)
+    emulator.last_open_bus = 0
+    emulator.access_penalty_cycles = 0
+    emulator.gamepak_seq_valid = false
+    emulator.bus_charging = false
+    return 0
+}

@@ -1,0 +1,259 @@
+module audio {
+    const FRAME_SEQUENCER_HZ: u64 = 512
+    const FRAME_SEQUENCER_CYCLES: u64 = video::CLOCK_HZ / FRAME_SEQUENCER_HZ
+    const SAMPLE_BUFFER_CAPACITY: usize = 8192
+    const BASE_SAMPLE_CYCLES: u32 = 512
+    const PCM_MIN: i32 = -512
+    const PCM_MAX: i32 = 511
+    const PWM_MAX: i32 = 1023
+
+    fn step(emulator: write emulator::State, cycles: u32, overflows: [u32; 4]) -> void {
+        process_events(emulator)
+        step_synced(emulator, cycles, overflows)
+        return
+    }
+
+    fn step_synced(emulator: write emulator::State, cycles: u32, overflows: [u32; 4]) -> void {
+        if master_enabled(emulator.audio) == false {
+            return
+        }
+        handle_overflows(emulator, overflows)
+        let frame_event = emulator.audio.frame_clock + u64.from(cycles) >= FRAME_SEQUENCER_CYCLES
+        if frame_event {
+            sync_channels(emulator.audio)
+        }
+        step_frame(emulator.audio, cycles)
+        emulator.audio.channel_clock = emulator.audio.channel_clock + u64.from(cycles)
+        emit_samples(emulator.audio, cycles)
+        if frame_event {
+            update_status(emulator)
+        }
+        return
+    }
+
+    fn can_advance_quiet(audio: State, cycles: u32) -> bool {
+        if master_enabled(audio) == false {
+            return true
+        }
+        if audio.frame_clock.wrapping_add(u64.from(cycles)) >= FRAME_SEQUENCER_CYCLES {
+            return false
+        }
+        return audio.sample_clock.wrapping_add(u64.from(cycles)) < sample_cycles(audio)
+    }
+
+    fn advance_quiet(audio: write State, cycles: u32) -> void {
+        if master_enabled(audio) == false {
+            return
+        }
+        let elapsed = u64.from(cycles)
+        audio.frame_clock = audio.frame_clock.wrapping_add(elapsed)
+        audio.channel_clock = audio.channel_clock.wrapping_add(elapsed)
+        audio.sample_clock = audio.sample_clock.wrapping_add(elapsed)
+        return
+    }
+
+    fn handle_overflows(emulator: write emulator::State, overflows: [u32; 4]) -> void {
+        let control = read16(emulator.audio, DIRECT_CONTROL)
+        var timer: usize = 0
+        while timer < 4 {
+            var remaining = overflows[timer]
+            while remaining != 0 {
+                handle_timer_overflow(emulator, timer, control)
+                remaining = remaining - 1
+            }
+            timer = timer + 1
+        }
+        return
+    }
+
+    fn request_dma(emulator: write emulator::State, channel: usize) -> void {
+        var index: usize = 0
+        while index < 4 {
+            let offset: usize = dma::BASE + index * dma::STRIDE
+            let destination = memory::io_read32(emulator.memory, offset + dma::DESTINATION)
+            let control = memory::io_read16(emulator.memory, offset + dma::CONTROL)
+            var expected: u32 = memory::io_address(audio::FIFO_A)
+            if channel == 1 {
+                expected = memory::io_address(audio::FIFO_B)
+            }
+            if destination == expected {
+                if control & dma::ENABLE != 0 {
+                    if control >> dma::TIMING_SHIFT & dma::MODE_MASK == dma::SPECIAL {
+                        dma::transfer(emulator, index)
+                    }
+                }
+            }
+            index = index + 1
+        }
+        return
+    }
+
+    fn step_frame(audio: write State, cycles: u32) -> void {
+        audio.frame_clock = audio.frame_clock + u64.from(cycles)
+        while audio.frame_clock >= FRAME_SEQUENCER_CYCLES {
+            audio.frame_clock = audio.frame_clock - FRAME_SEQUENCER_CYCLES
+            audio.frame_step = (audio.frame_step + 1) & 7
+            if audio.frame_step & 1 == 0 {
+                length_tick(audio)
+            }
+            if audio.frame_step == 2 {
+                pulse_sweep_tick(audio.pulse1)
+            }
+            if audio.frame_step == 6 {
+                pulse_sweep_tick(audio.pulse1)
+            }
+            if audio.frame_step == 7 {
+                tick_envelopes(audio)
+            }
+        }
+        return
+    }
+
+    fn length_tick(audio: write State) -> void {
+        channel_length_tick(audio.pulse1.control)
+        channel_length_tick(audio.pulse2.control)
+        channel_length_tick(audio.wave.control)
+        channel_length_tick(audio.noise.control)
+        return
+    }
+
+    fn tick_envelopes(audio: write State) -> void {
+        let pulse1_enabled = audio.pulse1.control.enabled
+        let pulse2_enabled = audio.pulse2.control.enabled
+        let noise_enabled = audio.noise.control.enabled
+        envelope_tick(audio.pulse1.envelope, pulse1_enabled)
+        envelope_tick(audio.pulse2.envelope, pulse2_enabled)
+        envelope_tick(audio.noise.envelope, noise_enabled)
+        return
+    }
+
+    fn sync_channels(audio: write State) -> void {
+        let cycles = audio.channel_clock
+        if cycles == 0 {
+            return
+        }
+        audio.channel_clock = 0
+        pulse_step(audio.pulse1, cycles)
+        pulse_step(audio.pulse2, cycles)
+        wave_step(audio.wave, cycles)
+        noise_step(audio.noise, cycles)
+        return
+    }
+
+    fn emit_samples(audio: write State, cycles: u32) -> void {
+        audio.sample_clock = audio.sample_clock + u64.from(cycles)
+        let sample_cycles = sample_cycles(audio)
+        while audio.sample_clock >= sample_cycles {
+            audio.sample_clock = audio.sample_clock - sample_cycles
+            sync_channels(audio)
+            let sample = mix_sample(audio)
+            audio.samples.push(sample[0])
+            audio.samples.push(sample[1])
+            if sample[0] != 0 {
+                audio.nonzero = true
+            }
+            if sample[1] != 0 {
+                audio.nonzero = true
+            }
+            audio.sample_count = audio.sample_count + 1
+        }
+        return
+    }
+
+    fn sample_cycles(audio: State) -> u64 {
+        let bias = read16(audio, BIAS_CONTROL)
+        return u64.from(BASE_SAMPLE_CYCLES >> u32.from(bias >> 14 & 3))
+    }
+
+    fn mix_sample(audio: State) -> [i32; 2] {
+        let control_l = read16(audio, MIXER_CONTROL)
+        let control_h = read16(audio, DIRECT_CONTROL)
+        var left: i32 = 0
+        var right: i32 = 0
+        let psg = [
+            pulse_sample(audio.pulse1), pulse_sample(audio.pulse2),
+            wave_sample(audio.wave, audio.registers), noise_sample(audio.noise)
+        ]
+        var channel: usize = 0
+        while channel < 4 {
+            if control_l &(1 <<(u16.from(channel) + 12)) != 0 {
+                left = left + psg[channel]
+            }
+            if control_l &(1 <<(u16.from(channel) + 8)) != 0 {
+                right = right + psg[channel]
+            }
+            channel = channel + 1
+        }
+        var shift: i32 = 0
+        if control_h & 3 == 0 {
+            shift = 2
+        }
+        if control_h & 3 == 1 {
+            shift = 1
+        }
+        left = left *(i32.from(control_l >> 4 & 7) + 1) >> shift
+        right = right *(i32.from(control_l & 7) + 1) >> shift
+        let pcm = mix_pcm(audio, control_h)
+        left = clamp(left + pcm[0], PCM_MIN, PCM_MAX)
+        right = clamp(right + pcm[1], PCM_MIN, PCM_MAX)
+        let bias = i32.from(read16(audio, BIAS_CONTROL) & 1023)
+        return [pwm_sample(left, bias), pwm_sample(right, bias)]
+    }
+
+    fn pwm_sample(sample: i32, bias: i32) -> i32 {
+        return clamp(sample + bias, 0, PWM_MAX) - bias
+    }
+
+    fn mix_pcm(audio: State, control: u16) -> [i32; 2] {
+        let sample_a = i32.from(audio.fifo_a.current_sample) << 2
+        let sample_b = i32.from(audio.fifo_b.current_sample) << 2
+        var shift_a: i32 = 1
+        var shift_b: i32 = 1
+        if control & FIFO_A_FULL_VOLUME != 0 {
+            shift_a = 0
+        }
+        if control & FIFO_B_FULL_VOLUME != 0 {
+            shift_b = 0
+        }
+        var left: i32 = 0
+        var right: i32 = 0
+        if control & FIFO_A_LEFT != 0 {
+            left = left +(sample_a >> shift_a)
+        }
+        if control & FIFO_A_RIGHT != 0 {
+            right = right +(sample_a >> shift_a)
+        }
+        if control & FIFO_B_LEFT != 0 {
+            left = left +(sample_b >> shift_b)
+        }
+        if control & FIFO_B_RIGHT != 0 {
+            right = right +(sample_b >> shift_b)
+        }
+        return [clamp(left, PCM_MIN, PCM_MAX), clamp(right, PCM_MIN, PCM_MAX)]
+    }
+
+    fn clamp(value: i32, low: i32, high: i32) -> i32 {
+        if value < low {
+            return low
+        }
+        if value > high {
+            return high
+        }
+        return value
+    }
+
+    fn handle_timer_overflow(emulator: write emulator::State, timer: usize, control: u16) -> void {
+        if timer == usize.from(control >> 10 & 1) {
+            let request = fifo_tick(emulator.audio.fifo_a)
+            if request {
+                request_dma(emulator, 0)
+            }
+        }
+        if timer == usize.from(control >> 14 & 1) {
+            let request = fifo_tick(emulator.audio.fifo_b)
+            if request {
+                request_dma(emulator, 1)
+            }
+        }
+    }
+}

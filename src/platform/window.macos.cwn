@@ -1,0 +1,176 @@
+module platform {
+    const APPLICATION_REGULAR: u64 = 0
+    const WINDOW_TITLED: u64 = 1
+    const WINDOW_CLOSABLE: u64 = 1 << 1
+    const WINDOW_MINIATURIZABLE: u64 = 1 << 2
+
+    opaque resource Window {
+        pool: ObjectivePool
+        app: RawPtr<void>
+        window: RawPtr<void>
+        view: RawPtr<void>
+        metal: MetalSurface
+        pressed: u32
+        deadline: u64
+        frame_ticks: u64
+        drop {
+            unsafe {
+                objc_unit(window, named_selector("close\0"))
+                release_object(view)
+                release_object(window)
+            }
+        }
+    }
+
+    fn open_native_application() -> RawPtr<void> {
+        unsafe {
+            let class = named_class("NSApplication\0")
+            let app = objc_pointer(class, named_selector("sharedApplication\0"))
+            objc_bool_u64(app, named_selector("setActivationPolicy:\0"), APPLICATION_REGULAR)
+            return app
+        }
+    }
+
+    fn open_native_window(layer: RawPtr<void>) -> [RawPtr<void>; 2] {
+        unsafe {
+            let class = named_class("NSWindow\0")
+            let allocated = objc_pointer(class, named_selector("alloc\0"))
+            let window = objc_pointer(allocated, named_selector("init\0"))
+            objc_unit_size(window, named_selector("setContentSize:\0"), f64.from(video::WIDTH * DISPLAY_SCALE), f64.from(video::HEIGHT * DISPLAY_SCALE))
+            objc_unit_u64(window, named_selector("setStyleMask:\0"), WINDOW_TITLED | WINDOW_CLOSABLE | WINDOW_MINIATURIZABLE)
+            objc_unit_bool(window, named_selector("setReleasedWhenClosed:\0"), false)
+            let view_class = named_class("NSView\0")
+            let view_allocated = objc_pointer(view_class, named_selector("alloc\0"))
+            let view = objc_pointer(view_allocated, named_selector("init\0"))
+            objc_unit_bool(view, named_selector("setWantsLayer:\0"), true)
+            objc_unit_object(view, named_selector("setLayer:\0"), layer)
+            objc_unit_object(window, named_selector("setContentView:\0"), view)
+            objc_unit_object(window, named_selector("setTitle:\0"), objective_string("gba_crown\0"))
+            objc_unit(window, named_selector("center\0"))
+            return [window, view]
+        }
+    }
+
+    fn open_native_platform() -> Window {
+        unsafe {
+            let pool = open_objective_pool()
+            let app = open_native_application()
+            let metal = open_metal()
+            let window_view = open_native_window(metal_layer(metal))
+            let ticks_per_second = ticks_per_second()
+            objc_unit_object(window_view[0], named_selector("makeKeyAndOrderFront:\0"), null_object())
+            objc_unit(app, named_selector("finishLaunching\0"))
+            objc_unit_bool(app, named_selector("activateIgnoringOtherApps:\0"), true)
+            return Window {
+                pool: move pool,
+                app: app,
+                window: window_view[0],
+                view: window_view[1],
+                metal: move metal,
+                pressed: 0,
+                deadline: mach_absolute_time(),
+                frame_ticks: frame_ticks(ticks_per_second)
+            }
+        }
+    }
+
+    fn platform_ready(platform: Window) -> bool {
+        unsafe {
+            if platform.window == null_object() {
+                return false
+            }
+            return metal_ready(platform.metal)
+        }
+    }
+
+    fn platform_running(platform: Window) -> bool {
+        unsafe {
+            return objc_bool(platform.window, named_selector("isVisible\0"))
+        }
+    }
+
+    fn handle_native_key(platform: write Window, event: RawPtr<void>) -> bool {
+        unsafe {
+            let kind = objc_integer(event, named_selector("type\0"))
+            if kind != 10 {
+                if kind != 11 {
+                    return false
+                }
+            }
+            let key = objc_integer(event, named_selector("keyCode\0"))
+            if key == 53 {
+                if kind == 10 {
+                    objc_unit(platform.window, named_selector("close\0"))
+                }
+                return true
+            }
+            let mask = app::key_mask(key)
+            if kind == 10 {
+                platform.pressed = platform.pressed | mask
+            }
+            if kind == 11 {
+                platform.pressed = platform.pressed & ~mask
+            }
+            return true
+        }
+    }
+
+    fn next_event(platform: Window, mode: RawPtr<void>) -> RawPtr<void> {
+        unsafe {
+            let date_class = named_class("NSDate\0")
+            let deadline = objc_pointer(date_class, named_selector("distantPast\0"))
+            return objc_event(
+                platform.app,
+                named_selector("nextEventMatchingMask:untilDate:inMode:dequeue:\0"),
+                18446744073709551615,
+                deadline,
+                mode,
+                true
+            )
+        }
+    }
+
+    fn poll_native_platform(platform: write Window) -> u32 {
+        unsafe {
+            let mode = objective_string("kCFRunLoopDefaultMode\0")
+            let null = null_object()
+            var event = next_event(platform, mode)
+            while event != null {
+                if handle_native_key(platform, event) == false {
+                    objc_unit_object(platform.app, named_selector("sendEvent:\0"), event)
+                }
+                event = next_event(platform, mode)
+            }
+            objc_unit(platform.app, named_selector("updateWindows\0"))
+            return platform.pressed
+        }
+    }
+
+    fn synchronize_native_platform(platform: write Window) -> void {
+        unsafe {
+            platform.deadline = platform.deadline.wrapping_add(platform.frame_ticks)
+            let now = mach_absolute_time()
+            if now > platform.deadline.wrapping_add(platform.frame_ticks * 4) {
+                platform.deadline = now
+                return
+            }
+            if now < platform.deadline {
+                mach_wait_until(platform.deadline)
+            }
+            return
+        }
+    }
+
+    fn copy_frame(platform: Window, pixels: Vec<u32>) -> void {
+        unsafe {
+            metal_copy_frame(platform.metal, pixels)
+        }
+        return
+    }
+
+    fn present(platform: Window) -> u32 {
+        unsafe {
+            return metal_present(platform.metal)
+        }
+    }
+}
