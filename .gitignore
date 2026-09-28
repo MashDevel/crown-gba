@@ -1,4 +1,12 @@
 .DS_Store
+.env
+.env.*
+*.pem
+*.key
+*.bin
+*.gba
+!roms/circuit-breaker.gba
+!tests/fixtures/*.gba
 target/
 **/target/
 *.sav
