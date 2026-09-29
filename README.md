@@ -10,20 +10,19 @@ The included `roms/circuit-breaker.gba` is an original game, Circuit Breaker. No
 
 ## Set up
 
-Install Crown revision `3345dc0e998d` or later, with named toolchain-library support, following the [Crown setup instructions](https://github.com/MashDevel/crown-lang#start). The initial bootstrap compiler must rebuild that checkout before it can consume this manifest.
-
-For example, run these commands from any working directory:
+Install the current Crown binary release using the [Crown installer](https://github.com/MashDevel/crown-lang#start):
 
 ```sh
-git clone https://github.com/MashDevel/crown-lang.git crown-lang
-sh crown-lang/bootstrap/install
-export PATH="$PWD/crown-lang/bootstrap:$PATH"
+curl -fsSL https://raw.githubusercontent.com/MashDevel/crown-lang/main/install.sh | sh
+```
+
+Open a new terminal, or run the PATH command printed by the installer, then:
+
+```sh
 crown --version
 git clone https://github.com/MashDevel/crown-gba.git gba
 cd gba
 ```
-
-The installer configures future shells; the `export` above enables Crown in the current shell.
 
 Crown and GBA can live in separate locations. GBA declares `source = "src"` and selects the bundled `platform` and `integrations` libraries by name. The standard library is automatic. Its test runner selects the bundled `toolchain` library. No manifest refers to Crown's internal source directories.
 
