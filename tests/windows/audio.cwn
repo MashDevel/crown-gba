@@ -3,6 +3,7 @@ module windows_tests {
         audio_pcm()?
         audio_reserve()?
         audio_recovery()?
+        audio_failures()?
         return audio_output()
     }
 

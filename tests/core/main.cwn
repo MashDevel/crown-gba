@@ -170,6 +170,10 @@ fn run_ppu_tests(emulator: write emulator::State) -> u32 {
 }
 
 fn run_dma_tests(emulator: write emulator::State) -> u32 {
+    let edges = test_device_edges(emulator)
+    if edges != 0 {
+        return edges
+    }
     let registers = test_dma_registers(emulator);
     if registers != 0 {
         return registers
