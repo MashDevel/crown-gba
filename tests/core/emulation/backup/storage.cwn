@@ -30,54 +30,43 @@ fn truncate_backup_file(path: read TextView) -> u32 {
     }
 }
 
-fn test_host_path_encoding() -> u32 {
-    let path = "crown"
-    loan read path as view {
-        let encoded = std::cstr::encode(view)
-        match move encoded {
-            Some(bytes) => {
-                if bytes.length() != 6 {
-                    return 410
-                }
-                if bytes[0] != 99 {
+fn expect_host_path_encoding(path: TextView, expected: TextView) -> u32 {
+    match std::cstr::encode(path) {
+        Some(bytes) => {
+            if bytes.length() != expected.length() {
+                return 410
+            }
+            for index in 0..expected.length() {
+                if bytes[index] != expected[index] {
                     return 411
                 }
-                if bytes[5] != 0 {
-                    return 412
-                }
             }
-            None => {
-                return 413
-            }
+            return 0
+        }
+        None => {
+            return 413
         }
     }
-    let empty_path = ""
-    loan read empty_path as view {
-        let empty = std::cstr::encode(view)
-        match move empty {
-            Some(bytes) => {
-                if bytes.length() != 1 || bytes[0] != 0 {
-                    return 414
-                }
-            }
-            None => {
-                return 415
-            }
+}
+
+fn test_host_path_encoding() -> u32 {
+    let normal = expect_host_path_encoding("crown", "crown\0")
+    if normal != 0 {
+        return normal
+    }
+    let empty = expect_host_path_encoding("", "\0")
+    if empty != 0 {
+        return empty
+    }
+    match std::cstr::encode("bad\0tail") {
+        Some(bytes) => {
+            bytes;
+            return 416
+        }
+        None => {
+            return 0
         }
     }
-    let embedded_path = "bad\0tail"
-    loan read embedded_path as view {
-        let embedded = std::cstr::encode(view)
-        match move embedded {
-            Some(bytes) => {
-                return 416
-            }
-            None => {
-                return 0
-            }
-        }
-    }
-    return 417
 }
 
 fn test_empty_save_file(path: read TextView, emulator: write emulator::State) -> u32 {

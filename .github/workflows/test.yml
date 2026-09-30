@@ -16,6 +16,8 @@ jobs:
     name: ${{ matrix.host }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      CROWN_ROOT: ${{ github.workspace }}/lang
     strategy:
       fail-fast: false
       matrix:
@@ -53,9 +55,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p target/ci
-          sh ../lang/bootstrap/fetch
-          ../lang/bootstrap/crown --version
-          echo "$GITHUB_WORKSPACE/lang/target/bootstrap" >> "$GITHUB_PATH"
+          compiler=$(sh ../lang/bootstrap/fetch-compiler)
+          echo "$(dirname "$compiler")" >> "$GITHUB_PATH"
       - name: Fetch Crown on Windows
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
@@ -63,11 +64,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force target/ci | Out-Null
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/fetch.ps1
+          $compiler = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/fetch.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Crown download failed' }
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/crown.ps1 --version
-          if ($LASTEXITCODE -ne 0) { throw 'Crown bootstrap failed' }
-          "$env:GITHUB_WORKSPACE/lang/target/bootstrap" >> $env:GITHUB_PATH
+          [IO.Path]::GetDirectoryName($compiler) >> $env:GITHUB_PATH
       - name: Check pinned Crown compiler
         id: bootstrap
         run: crown --version
