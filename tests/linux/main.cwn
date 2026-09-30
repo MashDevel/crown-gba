@@ -1,0 +1,60 @@
+fn main(arguments: Arguments) -> u32 {
+    if arguments.length() != 2 {
+        return 1
+    }
+    let result = linux_tests::run(arguments[1])
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module linux_tests {
+    fn run(path: TextView) -> Result<void, u32> {
+        var window = platform::open_window()?
+        if platform::window_running(window) == false {
+            return Err(2)
+        }
+        presentation(window)?
+        window_events(window)?
+        playback(path, window)?
+        close_window(window)?
+        return Ok(())
+    }
+
+    fn playback(path: TextView, window: write platform::Window) -> Result<void, u32> {
+        let cartridge = cartridge::load(path)?
+        var machine = emulator::new(move cartridge)
+        var audio = platform::open_audio()?
+        var gamepad = platform::open_gamepad()
+        let start = platform::nanoseconds()
+        while platform::nanoseconds() - start < 2000000000 {
+            platform::poll_window(window)
+            platform::poll_gamepad(gamepad)
+            assertions::equal(platform::poll_audio(audio, 2), 0, 20)?
+            if platform::audio_needs_frames(audio) {
+                assertions::equal(app::linux_frame(machine, window, audio), 0, 21)?
+            }
+        }
+        if machine.devices.frames < 20 {
+            return Err(22)
+        }
+        return drain_audio(audio)
+    }
+
+    fn drain_audio(audio: write platform::Audio) -> Result<void, u32> {
+        let start = platform::nanoseconds()
+        while platform::audio_queued(audio) != 0 && platform::nanoseconds() - start < 2000000000 {
+            assertions::equal(platform::poll_audio(audio, 2), 0, 23)?
+        }
+        assertions::equal(u32.from(platform::audio_queued(audio)), 0, 24)?
+        unsafe {
+            let state = integration::audio::poll(audio.connection, 0)?
+            assertions::equal(u32.from(state), 3, 25)?
+        }
+        return Ok(())
+    }
+}

@@ -105,13 +105,13 @@ crown test . --coverage target/quality/coverage
 crown coverage target/quality/coverage --output target/quality/coverage.json
 ```
 
-On Windows, also lint `tests/windows`, `tests/windows_gui`, and `tests/windows_playback` for the native API, GUI-subsystem, and worker-playback checks.
+On Windows, also lint `tests/windows`, `tests/windows_gui`, and `tests/windows_playback` for the native API, GUI-subsystem, and worker-playback checks. On Linux, also lint `tests/linux` for X11 presentation, window events, and PipeWire playback checks.
 
 Lint each project separately because the app and test executables have different entry points and source sets. The duplication command must receive the root of your full workspace so it scans source and tests as one corpus. The CI workspace contains both GBA and its Crown toolchain checkout.
 
 CI runs the full project suite, including the native Metal drawable check on macOS and native window, audio, and playback checks on Windows. Use `--filter headless` locally when a macOS desktop session is unavailable. For release QA, run all quality commands, inspect every host's reports, and perform the playback and save-persistence checks above. A failed lint or coverage command must remain a failed check.
 
-The functional suites, formatting, types, structural checks, and duplication checks pass on all six CI hosts. Coverage is still below the 95% line-and-branch requirement, so the workflow remains failing at that step. Reports contain the measurements for each host. Linux currently exercises the emulator and command line; automated Linux window and audio playback checks still need a test display and audio server.
+The functional suites, formatting, types, structural checks, and duplication checks pass on all six CI hosts. Coverage is still below the 95% line-and-branch requirement, so the workflow remains failing at that step. Reports contain the measurements for each host. Linux CI installs Xvfb and PipeWire and runs native presentation, resize, close-event, emulator playback, and audio-drain checks against an isolated display and stereo sink. With those packages installed locally, `bash tests/ci/linux-desktop crown test .` reproduces that environment. For manual Linux QA, also check audible output, keyboard and physical controller input, resizing, and normal close on a real desktop.
 
 ## Windows
 

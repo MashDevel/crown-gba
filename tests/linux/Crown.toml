@@ -1,0 +1,7 @@
+[package]
+name = "gba_linux_tests"
+sources = ["../../src", ".", "../core/assertions.cwn"]
+exclude = ["../../src/main.cwn"]
+
+[toolchain]
+libraries = ["platform", "integrations"]

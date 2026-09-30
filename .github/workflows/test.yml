@@ -79,11 +79,17 @@ jobs:
       - name: Check formatting
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         run: crown fmt src tests --check
+      - name: Install Linux display and audio services
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb pipewire
       - name: Type and structural checks for every project
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         run: |
           status=0
           projects=(. tests tests/core tests/validation)
+          if [ "$RUNNER_OS" = Linux ]; then projects+=(tests/linux); fi
           if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows tests/windows_gui tests/windows_playback); fi
           for project in "${projects[@]}"; do
             name=${project//\//-}
@@ -96,7 +102,13 @@ jobs:
       - name: Run functional tests with coverage
         id: tests
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
-        run: crown test . --output target/ci/tests --coverage target/ci/coverage
+        run: |
+          command=(crown test . --output target/ci/tests --coverage target/ci/coverage)
+          if [ "$RUNNER_OS" = Linux ]; then
+            bash tests/ci/linux-desktop "${command[@]}"
+          else
+            "${command[@]}"
+          fi
       - name: Require 95% line and branch coverage per package
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' && steps.tests.outcome != 'skipped' }}
         run: crown coverage target/ci/coverage --output target/ci/coverage.json
@@ -107,6 +119,7 @@ jobs:
           name: reports-${{ matrix.host }}
           path: |
             gba/target/ci/*.json
+            gba/target/ci/*.log
             gba/target/ci/tests/**
           if-no-files-found: error
           retention-days: 14
