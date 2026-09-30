@@ -64,6 +64,11 @@ module host {
     }
 
     fn read_host_file(file: File, buffer: write Buffer, length: usize) -> bool {
+        unsafe {
+            if file.value < 0 {
+                return false
+            }
+        }
         if length > buffer_length(buffer) {
             return false
         }
@@ -90,6 +95,9 @@ module host {
 
     fn seek_host_file(file: File, offset: i64, origin: i32) -> i64 {
         unsafe {
+            if file.value < 0 {
+                return -1
+            }
             let call = RawPtr<fn(read i32, read i64, read i32) -> i64>.cast(std::dylib::slot(file.library, 3)).read()
             return call(file.value, offset, origin)
         }
@@ -109,6 +117,9 @@ module host {
 
     fn sync_host_file(file: File) -> i32 {
         unsafe {
+            if file.value < 0 {
+                return -1
+            }
             let call = RawPtr<fn(read i32) -> i32>.cast(std::dylib::slot(file.library, 4)).read()
             return call(file.value)
         }
@@ -121,6 +132,9 @@ module host {
     }
 
     fn write_descriptor(library: std::dylib::Library, file: i32, buffer: Buffer, length: usize) -> bool {
+        if file < 0 {
+            return false
+        }
         if length > buffer_length(buffer) {
             return false
         }

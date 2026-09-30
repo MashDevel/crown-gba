@@ -58,6 +58,7 @@ module file_error_tests {
             }
         }
         host::close_host_file(file)
+        closed_operations(file)?
         assertions::equal(backup::load_backup_descriptor(move file, memory), 70, 1669)?
         let empty = host::allocate_buffer(0)
         match host::write_buffer_file(path, empty) {
@@ -90,5 +91,13 @@ module file_error_tests {
         assertions::equal(screenshot::bmp_file_error(std::io::Error::Write()), 62, 1677)?
         let empty = host::allocate_buffer(0)
         return assertions::equal(screenshot::write_bmp_file("invalid\0path", empty), 61, 1678)
+    }
+
+    fn closed_operations(file: host::File) -> Result<void, u32> {
+        var buffer = host::allocate_buffer(1)
+        assertions::equal(bits::bool_u32(host::read_host_file(file, buffer, 1)), 0, 1820)?
+        assertions::equal(bits::bool_u32(host::write_host_buffer(file, buffer, 1)), 0, 1821)?
+        assertions::equal(u32.from_bits(host::sync_host_file(file)), 0xffffffff, 1822)?
+        return assertions::equal64(u64.from_bits(host::seek_host_file(file, 0, 0)), 0xffffffffffffffff, 1823)
     }
 }
