@@ -87,6 +87,8 @@ crown test . --filter headless --coverage target/quality/coverage
 crown coverage target/quality/coverage --output target/quality/coverage.json
 ```
 
+On Windows, also run `crown lint tests/windows --output target/quality/windows.json` for the native API tests.
+
 Lint each project separately because the app and test executables have different entry points and source sets. The duplication command must receive the root of your full workspace so it scans source and tests as one corpus. The CI workspace contains both GBA and its Crown toolchain checkout.
 
 CI uses the documented headless suite because hosted runners have no interactive desktop. On a logged-in macOS desktop, omit `--filter headless` to include the native Metal drawable check. For release QA, run all quality commands, inspect every host's reports, and perform the playback and save-persistence checks above. A failed lint or coverage command must remain a failed check.

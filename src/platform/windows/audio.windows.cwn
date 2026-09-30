@@ -1,5 +1,6 @@
 module platform {
     extern "c" {
+        fn audio_abort() -> void = "abort"
         fn sleep(milliseconds: u32) -> void = "Sleep"
         fn milliseconds() -> u64 = "GetTickCount64"
     }
@@ -14,19 +15,30 @@ module platform {
         started: bool
         silent: app::AudioQueue
         drop {
-            unsafe {
-                if device != 0 {
-                    let reset = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(library, 4)).read()
-                    let unprepare = RawPtr<fn(read usize, read RawPtr<u64>, read u32) -> u32>.cast(std::dylib::slot(library, 2)).read()
-                    let close = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(library, 5)).read()
-                    reset(device)
-                    for index in 0..4 {
-                        if headers[index * 6 + 3] & 2 != 0 {
-                            unprepare(device, headers.as_raw().offset(index * 6), 48)
-                        }
+            close_audio_device(library, device, headers)
+        }
+    }
+
+    fn close_audio_device(library: std::dylib::Library, device: usize, headers: Vec<u64>) -> void {
+        if device == 0 {
+            return
+        }
+        unsafe {
+            let reset = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(library, 4)).read()
+            let unprepare = RawPtr<fn(read usize, read RawPtr<u64>, read u32) -> u32>.cast(std::dylib::slot(library, 2)).read()
+            let close = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(library, 5)).read()
+            if reset(device) != 0 {
+                audio_abort()
+            }
+            for index in 0..4 {
+                if headers[index * 6 + 3] & 2 != 0 {
+                    if unprepare(device, headers.as_raw().offset(index * 6), 48) != 0 {
+                        audio_abort()
                     }
-                    close(device)
                 }
+            }
+            if close(device) != 0 {
+                audio_abort()
             }
         }
     }

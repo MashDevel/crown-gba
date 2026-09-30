@@ -179,9 +179,6 @@ module host {
         }
     }
 
-}
-
-module host {
     fn path_separator(value: u8) -> bool {
         return value == 47
     }
