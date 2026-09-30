@@ -125,7 +125,7 @@ For Windows playback QA, play Circuit Breaker for at least 30 seconds on each ar
 
 ## Linux and Steam Deck
 
-On a supported x86-64 glibc Linux host with X11 and PipeWire, `crown run` uses the Linux frontend. The Steam Deck also reads its controller and left stick. Linux audio is resampled to 48 kHz and the frontend may skip video frames to recover from audio starvation.
+On a supported x86-64 or ARM64 glibc Linux host with X11 and PipeWire, `crown run` uses the Linux frontend. The Steam Deck also reads its controller and left stick. Linux audio is resampled to 48 kHz and the frontend may skip video frames to recover from audio starvation.
 
 To cross-compile Linux assembly on macOS and link it on the Deck:
 
