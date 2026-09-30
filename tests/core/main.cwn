@@ -12,7 +12,7 @@ fn run_emulator_cases(emulator: write emulator::State, cases: Slice<fn(write emu
 }
 
 fn run_bios_tests(emulator: write emulator::State) -> u32 {
-    let cases = [test_lz77, test_run_length, test_diff, test_huffman, test_bit_unpack, test_compression_edges, test_bios_affine, test_bios_system, test_bios_sound_driver, test_bios_sound_music]
+    let cases = [test_lz77, test_run_length, test_diff, test_huffman, test_bit_unpack, test_compression_edges, test_bios_affine, test_bios_system, test_bios_sound_driver, test_bios_sound_music, test_bios_math, test_music_player_edges]
     loan read cases as values {
         let result = run_emulator_cases(emulator, values)
         if result != 0 {
