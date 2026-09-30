@@ -1,0 +1,65 @@
+module playback_tests {
+    extern "c" {
+        fn fail(code: u32) -> void = "ExitProcess"
+    }
+
+    fn close_after_playback() -> void {
+        match close_window() {
+            Ok(value) => {
+                value;
+            }
+            Err(code) => {
+                unsafe {
+                    fail(code)
+                }
+            }
+        }
+    }
+
+    fn close_window() -> Result<void, u32> {
+        let user = win::library("user32.dll", "FindWindowW|GetWindowThreadProcessId|PostMessageW")?
+        let kernel = win::library("kernel32.dll", "GetCurrentProcessId")?
+        let name = match std::wstr::new("Crown GBA") {
+            Some(value) => move value,
+            None => {
+                return Err(4)
+            }
+        }
+        unsafe {
+            let find = RawPtr<fn(read RawPtr<u16>, read RawPtr<u16>) -> usize>.cast(std::dylib::slot(user, 0)).read()
+            let process = RawPtr<fn() -> u32>.cast(std::dylib::slot(kernel, 0)).read()
+            for attempt in 0..30000 {
+                attempt;
+                let window = find(std::wstr::as_raw(name), std::wstr::as_raw(name))
+                if own_window(user, window, process()) {
+                    return finish_playback(user, window)
+                }
+                platform::wait_window()
+            }
+        }
+        return Err(5)
+    }
+
+    fn own_window(user: std::dylib::Library, window: usize, process: u32) -> bool {
+        if window == 0 {
+            return false
+        }
+        unsafe {
+            let owner = RawPtr<fn(read usize, read RawPtr<u32>) -> u32>.cast(std::dylib::slot(user, 1)).read()
+            var pid: [u32; 1] = [0]
+            owner(window, pid.as_raw())
+            return pid[0] == process
+        }
+    }
+
+    fn finish_playback(user: std::dylib::Library, window: usize) -> Result<void, u32> {
+        unsafe {
+            platform::sleep(3000)
+            let post = RawPtr<fn(read usize, read u32, read usize, read isize) -> i32>.cast(std::dylib::slot(user, 2)).read()
+            if post(window, 16, 0, 0) == 0 {
+                return Err(6)
+            }
+        }
+        return Ok(())
+    }
+}

@@ -1,0 +1,27 @@
+module windows_tests {
+    fn repaint(window: write platform::Window) -> Result<void, u32> {
+        let user = win::library("user32.dll", "RedrawWindow")?
+        let graphics = win::library("gdi32.dll", "GetPixel")?
+        unsafe {
+            let acquire = RawPtr<fn(read usize) -> usize>.cast(std::dylib::slot(window.user, 12)).read()
+            let release = RawPtr<fn(read usize, read usize) -> i32>.cast(std::dylib::slot(window.user, 13)).read()
+            let fill = RawPtr<fn(read usize, read RawPtr<i32>, read usize) -> i32>.cast(std::dylib::slot(window.user, 16)).read()
+            let stock = RawPtr<fn(read i32) -> usize>.cast(std::dylib::slot(window.paint[0].graphics, 2)).read()
+            let redraw = RawPtr<fn(read usize, read usize, read usize, read u32) -> i32>.cast(std::dylib::slot(user, 0)).read()
+            let pixel = RawPtr<fn(read usize, read i32, read i32) -> u32>.cast(std::dylib::slot(graphics, 0)).read()
+            let dc = acquire(window.handle)
+            if dc == 0 {
+                return Err(30)
+            }
+            var rect: [i32; 4] = [0, 0, 720, 480]
+            let cleared = fill(dc, rect.as_raw(), stock(4))
+            let repainted = redraw(window.handle, 0, 0, 261)
+            let color = pixel(dc, 360, 240)
+            release(window.handle, dc)
+            if cleared == 0 || repainted == 0 || color != 255 {
+                return Err(31)
+            }
+        }
+        return Ok(())
+    }
+}

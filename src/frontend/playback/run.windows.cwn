@@ -1,7 +1,39 @@
 module app {
     fn run_native_frontend(emulator: take emulator::State) -> Option<Result> {
-        var machine = move emulator
-        let result = windows_frontend::playback(machine)
+        var window = match platform::open_window() {
+            Ok(value) => move value,
+            Err(code) => {
+                return Some(Result {
+                        emulator: move emulator, code: code
+                    })
+            }
+        }
+        let state = Shared.new(Mutex.new(new_native_frontend_state()))
+        let completed = Channel<emulator::State>.new()
+        let worker_completed = completed.share()
+        var worker = spawn move {
+            windows_frontend::worker(move emulator, move state, move worker_completed)
+        }
+        let result = windows_frontend::display(window, state)
+        worker.join()
+        let returned = completed.try_receive()
+        match move returned {
+            Some(machine) => {
+                return Some(Result {
+                        emulator: move machine, code: result
+                    })
+            }
+            None => {
+                return None()
+            }
+        }
+    }
+}
+
+module windows_frontend {
+    fn worker(machine: take emulator::State, state: take Shared<Mutex<app::State>>, completed: take Channel<emulator::State>) -> void {
+        var emulator = move machine
+        let result = playback(emulator, state)
         let code = match result {
             Ok(value) => {
                 value;
@@ -9,44 +41,116 @@ module app {
             },
             Err(error) => error
         }
-        return Some(Result {
-                emulator: move machine, code: code
-            })
+        state.lock write as current {
+            app::finish(current, code)
+        }
+        completed.send(move emulator)
     }
 
-}
-
-module windows_frontend {
-    fn playback(machine: write emulator::State) -> Result<void, u32> {
-        var window = platform::open_window()?
+    fn playback(machine: write emulator::State, state: Shared<Mutex<app::State>>) -> Result<void, u32> {
         var audio = platform::open_audio()?
-        let gamepad = platform::open_gamepad()?
-        while platform::window_running(window) {
-            let keyboard = platform::poll_window(window)
-            if platform::window_running(window) == false {
-                break
+        while true {
+            var running = false
+            var pressed: u16 = 0
+            state.lock write as current {
+                running = current.running
+                pressed = current.pressed
             }
-            let pressed = keyboard | platform::poll_gamepad(gamepad, window)
-            keypad::set_pressed(machine.memory, u16.from(pressed))
-            platform::poll_audio(audio, 0)
+            if running == false {
+                return Ok(())
+            }
+            keypad::set_pressed(machine.memory, pressed)
+            let polled = platform::poll_audio(audio, 0)
+            if polled != 0 {
+                return Err(polled)
+            }
             if platform::audio_needs_frames(audio) == false {
-                platform::poll_audio(audio, 1)
+                platform::wait_window()
                 continue
             }
-            let result = emulator::run_frame_with_video(machine, true)
-            if result != 0 {
-                return Err(result)
-            }
-            let rate = u32.from(video::CLOCK_HZ / audio::sample_cycles(machine.audio))
-            if platform::submit_audio(audio, machine.audio.samples, rate) == false {
-                return Err(93)
-            }
-            audio::clear_samples(machine.audio)
-            let presented = platform::present_frame(window, machine.ppu.framebuffer)
-            if presented != 0 {
-                return Err(presented)
+            frame(machine, audio, state)?
+        }
+        return Ok(())
+    }
+
+    fn frame(machine: write emulator::State, audio: write platform::Audio, state: Shared<Mutex<app::State>>) -> Result<void, u32> {
+        var render = false
+        let ready = platform::audio_should_render(audio)
+        let clock = platform::frame_clock()
+        state.lock write as current {
+            render = app::frame_schedule_render(current.video, ready, clock)
+        }
+        let result = emulator::run_frame_with_video(machine, render)
+        if result != 0 {
+            return Err(result)
+        }
+        let rate = u32.from(video::CLOCK_HZ / audio::sample_cycles(machine.audio))
+        if platform::submit_audio(audio, machine.audio.samples, rate) == false {
+            return Err(93)
+        }
+        audio::clear_samples(machine.audio)
+        if render {
+            state.lock write as current {
+                if app::publish(current, machine.ppu.framebuffer) == false {
+                    return Err(86)
+                }
             }
         }
         return Ok(())
+    }
+
+    fn display(window: write platform::Window, state: Shared<Mutex<app::State>>) -> u32 {
+        let result = display_loop(window, state)
+        let code = match result {
+            Ok(value) => {
+                value;
+                0
+            },
+            Err(error) => error
+        }
+        var returned = code
+        state.lock write as current {
+            app::finish(current, code)
+            returned = current.code
+        }
+        return returned
+    }
+
+    fn display_loop(window: write platform::Window, state: Shared<Mutex<app::State>>) -> Result<void, u32> {
+        let gamepad = platform::open_gamepad()?
+        var pixels = memory::zero_u32(38400)
+        var sequence: u64 = 0
+        while platform::window_running(window) {
+            let pressed = platform::poll_window(window) | platform::poll_gamepad(gamepad, window)
+            var running = false
+            var present = false
+            state.lock write as current {
+                app::update_input(current, u16.from(pressed))
+                running = current.running
+                present = copy_frame(current, pixels, sequence)
+            }
+            if running == false {
+                return Ok(())
+            }
+            if present {
+                let status = platform::present_frame(window, pixels)
+                if status != 0 {
+                    return Err(status)
+                }
+            }
+            platform::wait_window()
+        }
+        return Ok(())
+    }
+
+    fn copy_frame(state: app::State, pixels: write Vec<u32>, sequence: write u64) -> bool {
+        if sequence == state.sequence {
+            return false
+        }
+        for index in 0..38400 {
+            pixels[index] = state.framebuffer[index]
+        }
+        sequence = state.sequence
+        return true
     }
 }

@@ -1,5 +1,5 @@
 module platform {
-    fn present_frame(window: Window, pixels: Vec<u32>) -> u32 {
+    fn present_frame(window: write Window, pixels: Vec<u32>) -> u32 {
         if pixels.length() != 38400 {
             return 86
         }
@@ -7,37 +7,34 @@ module platform {
             if window.handle == 0 {
                 return 0
             }
-            let minimized = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(window.user, 17)).read()
-            if minimized(window.handle) != 0 {
-                return 0
-            }
-            var rect: [i32; 4] = [0, 0, 0, 0]
-            let client = RawPtr<fn(read usize, read RawPtr<i32>) -> i32>.cast(std::dylib::slot(window.user, 11)).read()
-            if client(window.handle, rect.as_raw()) == 0 {
+            retain_frame(window.paint[0], pixels)
+            let invalidate = RawPtr<fn(read usize, read usize, read i32) -> i32>.cast(std::dylib::slot(window.user, 18)).read()
+            let update = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(window.user, 19)).read()
+            if invalidate(window.handle, 0, 0) == 0 {
                 return 83
             }
-            if rect[2] <= 0 || rect[3] <= 0 {
-                return 0
-            }
-            let acquire = RawPtr<fn(read usize) -> usize>.cast(std::dylib::slot(window.user, 12)).read()
-            let release = RawPtr<fn(read usize, read usize) -> i32>.cast(std::dylib::slot(window.user, 13)).read()
-            let dc = acquire(window.handle)
-            if dc == 0 {
-                return 84
-            }
-            let status = draw_frame(window, dc, rect, pixels)
-            release(window.handle, dc)
-            return status
+            update(window.handle)
+            return window.paint[0].error
         }
     }
 
-    fn draw_frame(window: Window, dc: usize, rect: [i32; 4], pixels: Vec<u32>) -> u32 {
+    fn retain_frame(state: write WindowPaint, pixels: Vec<u32>) -> void {
+        for index in 0..38400 {
+            state.pixels[index] = pixels[index]
+        }
+    }
+
+    fn draw_frame(window: WindowPaint, dc: usize, rect: [i32; 4], pixels: Vec<u32>) -> u32 {
         unsafe {
             let fill = RawPtr<fn(read usize, read RawPtr<i32>, read usize) -> i32>.cast(std::dylib::slot(window.user, 16)).read()
             let stock = RawPtr<fn(read i32) -> usize>.cast(std::dylib::slot(window.graphics, 2)).read()
-            fill(dc, rect.as_raw(), stock(4))
+            if fill(dc, rect.as_raw(), stock(4)) == 0 {
+                return 85
+            }
             let mode = RawPtr<fn(read usize, read i32) -> i32>.cast(std::dylib::slot(window.graphics, 1)).read()
-            mode(dc, 3)
+            if mode(dc, 3) == 0 {
+                return 85
+            }
             let draw = RawPtr<fn(read usize, read i32, read i32, read i32, read i32, read i32, read i32, read i32, read i32, read RawPtr<u32>, read RawPtr<i32>, read u32, read u32) -> i32>.cast(std::dylib::slot(window.graphics, 0)).read()
             let size = app::windows_image_dimensions(u32.from(rect[2]), u32.from(rect[3]))
             let width = i32.from(size[0])

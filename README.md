@@ -26,6 +26,24 @@ git clone https://github.com/MashDevel/crown-gba.git gba
 cd gba
 ```
 
+This revision requires Crown’s [Windows subsystem support](https://github.com/MashDevel/crown-lang/commit/3dd86f068a85cbde3a240034f09124e5b1bea4a6), including when building on macOS or Linux. If your binary release predates that change, use it to build the current compiler checkout first. In Windows PowerShell, from a directory alongside `gba`:
+
+```powershell
+git clone https://github.com/MashDevel/crown-lang.git lang
+$env:CROWN_ROOT = (Resolve-Path lang).Path
+crown build lang/components/compiler -o lang/crown.exe
+$env:PATH = "$env:CROWN_ROOT;$env:PATH"
+```
+
+On macOS/Linux, the equivalent is:
+
+```sh
+git clone https://github.com/MashDevel/crown-lang.git lang
+export CROWN_ROOT="$PWD/lang"
+crown build lang/components/compiler -o lang/crown
+export PATH="$CROWN_ROOT:$PATH"
+```
+
 Crown and GBA can live in separate locations. GBA declares `source = "src"` and selects the bundled `platform` and `integrations` libraries by name. The standard library is automatic. Its test runner selects the bundled `toolchain` library. No manifest refers to Crown's internal source directories.
 
 Then, in `gba`, build and play Circuit Breaker:
@@ -99,9 +117,11 @@ The initial release has existing structural and coverage failures. The macOS bas
 
 On Windows x86-64 or ARM64, `crown run . -- roms/circuit-breaker.gba` opens a resizable window with nearest-neighbor scaling and a centered image. Keyboard controls match macOS/Linux. XInput controllers map A/B, Back/Start, the D-pad or left stick, and shoulder buttons to the GBA controls. Input is released when the window loses focus. Escape and the window close button exit normally and save cartridge backup memory.
 
-Audio uses the Windows waveform output API with buffered 48 kHz stereo samples. If no output device is available, playback continues silently at the same rate. ROM, BIOS, screenshot, and save paths support Unicode. Save replacement uses a flushed, exclusively created temporary file beside the destination.
+The Windows executable uses the GUI subsystem, so launching it does not create a console window. Frames are retained and drawn through an off-screen bitmap before a single window copy; resize and restore events repaint the retained frame.
 
-For Windows playback QA, play Circuit Breaker for at least 30 seconds on each architecture. Check image colors, resizing and minimizing/restoring, keyboard and controller input, focus changes, and sound. Test without an audio output device. Close with Escape and the close button; reopen a save-backed cartridge and confirm persistence. Repeat from a directory containing spaces and non-ASCII characters. CI verifies native API execution, but audible output and physical controller behavior still need these manual checks.
+Audio uses the Windows waveform output API with buffered 48 kHz stereo samples. Emulation and audio run on a worker independently of window messages. After an underrun, playback refills its queue before restarting. If no output device is available, playback continues silently at the same rate. ROM, BIOS, screenshot, and save paths support Unicode. Save replacement uses a flushed, exclusively created temporary file beside the destination.
+
+For Windows playback QA, play Circuit Breaker for at least 30 seconds on each architecture. Launch the built executable directly and confirm no console appears. Check image colors, continuous resizing, dragging the title bar for several seconds, and minimizing/restoring; sound should continue during window interaction and the picture should not flash black. Check keyboard and controller input, focus changes, and sound. Test without an audio output device. Close with Escape and the close button; reopen a save-backed cartridge and confirm persistence. Repeat from a directory containing spaces and non-ASCII characters. CI verifies native API execution, but audible output and physical controller behavior still need these manual checks.
 
 ## Linux and Steam Deck
 

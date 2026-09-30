@@ -1,0 +1,60 @@
+module platform {
+    opaque resource FrameBuffer {
+        library: std::dylib::Library
+        dc: usize
+        bitmap: usize
+        previous: usize
+        drop {
+            unsafe {
+                let select = RawPtr<fn(read usize, read usize) -> usize>.cast(std::dylib::slot(library, 5)).read()
+                let delete = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(library, 6)).read()
+                let destroy = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(library, 7)).read()
+                if previous != 0 {
+                    select(dc, previous)
+                }
+                if bitmap != 0 {
+                    delete(bitmap)
+                }
+                if dc != 0 {
+                    destroy(dc)
+                }
+            }
+        }
+    }
+
+    fn frame_buffer(graphics: std::dylib::Library, dc: usize, rect: [i32; 4]) -> Result<FrameBuffer, u32> {
+        let library = window_graphics_library()?
+        unsafe {
+            let create = RawPtr<fn(read usize) -> usize>.cast(std::dylib::slot(graphics, 3)).read()
+            let bitmap = RawPtr<fn(read usize, read i32, read i32) -> usize>.cast(std::dylib::slot(graphics, 4)).read()
+            let select = RawPtr<fn(read usize, read usize) -> usize>.cast(std::dylib::slot(graphics, 5)).read()
+            var output = FrameBuffer {
+                library: move library, dc: create(dc), bitmap: 0, previous: 0
+            }
+            if output.dc == 0 {
+                return Err(84)
+            }
+            output.bitmap = bitmap(dc, rect[2], rect[3])
+            if output.bitmap == 0 {
+                return Err(84)
+            }
+            output.previous = select(output.dc, output.bitmap)
+            if output.previous == 0 || output.previous == 18446744073709551615 {
+                output.previous = 0
+                return Err(84)
+            }
+            return Ok(move output)
+        }
+    }
+
+    fn copy_frame_buffer(graphics: std::dylib::Library, buffer: FrameBuffer, dc: usize, rect: [i32; 4]) -> u32 {
+        unsafe {
+            let blit = RawPtr<fn(read usize, read i32, read i32, read i32, read i32, read usize, read i32, read i32, read u32) -> i32>.cast(std::dylib::slot(graphics, 8)).read()
+            return if blit(dc, 0, 0, rect[2], rect[3], buffer.dc, 0, 0, 13369376) == 0 {
+                85
+            } else {
+                0
+            }
+        }
+    }
+}

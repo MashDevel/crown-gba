@@ -99,6 +99,29 @@ module platform {
         return Ok(())
     }
 
+    fn frame_clock() -> app::FrameClock {
+        unsafe {
+            return app::FrameClock {
+                now: milliseconds(), frame_ticks: 17
+            }
+        }
+    }
+
+    fn wait_window() -> void {
+        unsafe {
+            sleep(1)
+        }
+    }
+
+    fn audio_should_render(audio: Audio) -> bool {
+        unsafe {
+            if audio.device == 0 {
+                return audio.silent.queued_frames >= 2048
+            }
+            return audio.queued >= 2048
+        }
+    }
+
     fn audio_needs_frames(audio: Audio) -> bool {
         unsafe {
             if audio.device == 0 {
@@ -124,6 +147,9 @@ module platform {
                 if audio.headers[index * 6 + 3] & 16 != 0 {
                     audio.queued = audio.queued + 1024
                 }
+            }
+            if recover_audio(audio) == false {
+                return 91
             }
         }
         return 0
