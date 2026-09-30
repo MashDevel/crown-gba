@@ -105,7 +105,7 @@ jobs:
         run: |
           command=(crown test . --output target/ci/tests --coverage target/ci/coverage)
           if [ "$RUNNER_OS" = Linux ]; then
-            bash tests/ci/linux-desktop "${command[@]}"
+            dbus-run-session -- bash tests/ci/linux-desktop "${command[@]}"
           else
             "${command[@]}"
           fi
