@@ -26,6 +26,24 @@ git clone https://github.com/MashDevel/crown-gba.git gba
 cd gba
 ```
 
+This revision requires Crown’s [Windows subsystem support](https://github.com/MashDevel/crown-lang/commit/7b2bb31786ff1c0fd6c3e5fc96c06617d9df02c7), including when building on macOS or Linux. If your binary release predates that change, use it to build the current compiler checkout first. In Windows PowerShell, from a directory alongside `gba`:
+
+```powershell
+git clone https://github.com/MashDevel/crown-lang.git lang
+$env:CROWN_ROOT = (Resolve-Path lang).Path
+crown build lang/components/compiler -o lang/crown.exe
+$env:PATH = "$env:CROWN_ROOT;$env:PATH"
+```
+
+On macOS/Linux, the equivalent is:
+
+```sh
+git clone https://github.com/MashDevel/crown-lang.git lang
+export CROWN_ROOT="$PWD/lang"
+crown build lang/components/compiler -o lang/crown
+export PATH="$CROWN_ROOT:$PATH"
+```
+
 Crown and GBA can live in separate locations. GBA declares `source = "src"` and selects the bundled `platform` and `integrations` libraries by name. The standard library is automatic. Its test runner selects the bundled `toolchain` library. No manifest refers to Crown's internal source directories.
 
 Then, in `gba`, build and play Circuit Breaker:
