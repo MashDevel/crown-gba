@@ -1,0 +1,91 @@
+fn test_sound_driver_edges(emulator: write emulator::State) -> u32 {
+    let result = driver_tests::run(emulator)
+    bios::hard_reset(emulator)
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module driver_tests {
+    const AREA: u32 = 0x02006000
+
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        absent(emulator)?
+        defaults(emulator)?
+        invalid_identifiers(emulator)?
+        return counters(emulator)
+    }
+
+    fn absent(emulator: write emulator::State) -> Result<void, u32> {
+        bios::hard_reset(emulator)
+        let calls: [u32; 6] = [0x1a, 0x1b, 0x1c, 0x1d, 0x28, 0x29]
+        for index in 0..6 {
+            emulator.cpu.registers[0] = 0
+            bios::handle_swi(emulator, calls[index])
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, bios::sound::WORK_AREA_POINTER), 0, 1060)?
+        }
+        assertions::equal(bits::bool_u32(bios::sound::branch_target(emulator.cpu, 0)), 0, 1061)?
+        return Ok(())
+    }
+
+    fn defaults(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu.registers[0] = AREA
+        bios::handle_swi(emulator, bios::call::SOUND_INIT)
+        memory::write8(emulator.memory, AREA + 6, 3)
+        bios::handle_swi(emulator, bios::call::SOUND_INIT)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 6)), 3, 1062)?
+        emulator.cpu.registers[0] = 0
+        bios::handle_swi(emulator, bios::call::SOUND_MODE)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 6)), 3, 1063)?
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 8)), 4, 1064)?
+        let expected: [u32; 14] = [0, 96, 132, 176, 224, 264, 304, 352, 448, 528, 608, 672, 704, 0]
+        for index in 0..14 {
+            assertions::equal(bios::sound::samples(u8.from(index)), expected[index], 1065)?
+        }
+        bios::sound::set_frequency(emulator, AREA, 0)
+        bios::sound::set_frequency(emulator, AREA, 13)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 8)), 4, 1066)?
+        bios::handle_swi(emulator, bios::call::SOUND_MAIN)
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, AREA), bios::sound::DRIVER_READY, 1067)?
+        return Ok(())
+    }
+
+    fn invalid_identifiers(emulator: write emulator::State) -> Result<void, u32> {
+        let identifiers: [u32; 2] = [bios::sound::DRIVER_READY - 1, bios::sound::DRIVER_BUSY + 1]
+        for index in 0..2 {
+            memory::write32(emulator.memory, AREA, identifiers[index])
+            memory::write8(emulator.memory, AREA + 4, 2)
+            bios::handle_swi(emulator, bios::call::SOUND_VSYNC)
+            assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 4)), 2, 1068)?
+            bios::handle_swi(emulator, bios::call::SOUND_VSYNC_OFF)
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, AREA), identifiers[index], 1069)?
+            assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 4)), 0, 1070)?
+            bios::handle_swi(emulator, bios::call::SOUND_VSYNC_ON)
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, AREA), identifiers[index], 1071)?
+            assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 4)), 1, 1072)?
+        }
+        return Ok(())
+    }
+
+    fn counters(emulator: write emulator::State) -> Result<void, u32> {
+        memory::write32(emulator.memory, AREA, bios::sound::DRIVER_READY)
+        memory::write8(emulator.memory, AREA + 4, 0)
+        bios::handle_swi(emulator, bios::call::SOUND_VSYNC)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 4)), 255, 1073)?
+        memory::write8(emulator.memory, AREA + 4, 1)
+        memory::write8(emulator.memory, AREA + 11, 0)
+        bios::handle_swi(emulator, bios::call::SOUND_VSYNC)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, AREA + 4)), 1, 1074)?
+        cpu::set_thumb(emulator.cpu, true)
+        emulator.cpu.registers[cpu::PC] = 0x02000102
+        memory::write32(emulator.memory, AREA + 32, 0x02000201)
+        bios::handle_swi(emulator, bios::call::SOUND_MAIN)
+        assertions::equal(emulator.cpu.registers[cpu::LR], 0x02000103, 1075)?
+        assertions::equal(emulator.cpu.registers[cpu::PC], 0x02000200, 1076)?
+        return Ok(())
+    }
+}

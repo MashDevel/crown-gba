@@ -12,7 +12,7 @@ fn run_emulator_cases(emulator: write emulator::State, cases: Slice<fn(write emu
 }
 
 fn run_bios_tests(emulator: write emulator::State) -> u32 {
-    let cases = [test_lz77, test_run_length, test_diff, test_huffman, test_bit_unpack, test_compression_edges, test_bios_affine, test_bios_system, test_bios_sound_driver, test_bios_sound_music, test_bios_math, test_music_player_edges]
+    let cases = [test_lz77, test_run_length, test_diff, test_huffman, test_bit_unpack, test_compression_edges, test_bios_affine, test_bios_system, test_bios_sound_driver, test_bios_sound_music, test_bios_math, test_music_player_edges, test_sound_driver_edges]
     loan read cases as values {
         let result = run_emulator_cases(emulator, values)
         if result != 0 {
@@ -202,8 +202,8 @@ fn run_dma_tests(emulator: write emulator::State) -> u32 {
 }
 
 fn run_frontend_tests(emulator: write emulator::State) -> u32 {
-    let cases = [test_windows_frontend, test_save_paths, test_linux_frontend, test_native_input, test_native_frontend_state]
-    for index in 0..5 {
+    let cases = [test_windows_frontend, test_save_paths, test_linux_frontend, test_native_input, test_native_frontend_state, test_host_buffers]
+    for index in 0..6 {
         let check = cases[index]
         let result = check()
         if result != 0 {

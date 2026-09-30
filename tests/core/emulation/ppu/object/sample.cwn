@@ -1,0 +1,85 @@
+module object_tests {
+    fn samples() -> Result<void, u32> {
+        var memory = memory::new()
+        for flip in 0..4 {
+            memory::write16(memory, memory::OAM_START + u32.from(2), u16.from(flip) << 12)
+            let sample = video::ObjectSample {
+                point: video::ObjectPoint {
+                    object: 0, line: 3, x: 2
+                }, control: 0, size: [8, 8], render_size: [8, 8]
+            }
+            let point = video::object_coordinates(memory, sample)
+            assertions::equal(u32.from_bits(point[0]), if flip & 1 == 0 {
+                    2
+                } else {
+                    5
+                }, 1140)?
+            assertions::equal(u32.from_bits(point[1]), if flip & 2 == 0 {
+                    3
+                } else {
+                    4
+                }, 1141)?
+        }
+        memory::write16(memory, memory::OAM_START + u32.from(0), video::OBJECT_MOSAIC)
+        memory::io_store16(memory, video::MOSAIC, 0x3300)
+        let sample = video::ObjectSample {
+            point: video::ObjectPoint {
+                object: 0, line: 3, x: 2
+            }, control: 0, size: [8, 8], render_size: [8, 8]
+        }
+        let point = video::object_coordinates(memory, sample)
+        assertions::equal(u32.from_bits(point[0]), 7, 1142)?
+        assertions::equal(u32.from_bits(point[1]), 7, 1143)?
+        affine_bounds(memory)?
+        return palettes(memory)
+    }
+
+    fn affine_bounds(memory: write memory::State) -> Result<void, u32> {
+        memory::write16(memory, memory::OAM_START + u32.from(0), video::OBJECT_AFFINE)
+        memory::write16(memory, memory::OAM_START + u32.from(2), 0)
+        memory::write16(memory, memory::OAM_START + u32.from(video::OBJECT_MATRIX_A), 512)
+        memory::write16(memory, memory::OAM_START + u32.from(video::OBJECT_MATRIX_D), 512)
+        let x: [usize; 5] = [0, 4, 7, 4, 8]
+        let y: [usize; 5] = [4, 0, 4, 7, 4]
+        for index in 0..5 {
+            let sample = video::ObjectSample {
+                point: video::ObjectPoint {
+                    object: 0, line: y[index], x: x[index]
+                }, control: 0, size: [8, 8], render_size: [8, 8]
+            }
+            let pixel = video::object_pixel(memory, sample)
+            assertions::equal(bits::bool_u32(pixel.visible), 0, 1144)?
+        }
+        memory::write16(memory, memory::OAM_START + u32.from(0), 0)
+        let sample = video::ObjectSample {
+            point: video::ObjectPoint {
+                object: 0, line: 0, x: 0
+            }, control: 3, size: [8, 8], render_size: [8, 8]
+        }
+        let pixel = video::object_pixel(memory, sample)
+        assertions::equal(bits::bool_u32(pixel.visible), 0, 1145)?
+        return Ok(())
+    }
+
+    fn palettes(memory: write memory::State) -> Result<void, u32> {
+        let offsets: [usize; 4] = [66624, 65664, 67648, 65760]
+        let colors: [u8; 4] = [0x65, 0x87, 9, 11]
+        let expected: [u32; 8] = [53, 55, 9, 11, 54, 56, 10, 12]
+        for index in 0..4 {
+            memory.vram[offsets[index]] = colors[index]
+            memory.vram[offsets[index] + 1] = colors[index] + 1
+        }
+        for index in 0..8 {
+            let palette = video::ObjectPalette {
+                attr2: 0x3001, x: 8 + index / 4, y: 8, size: [16, 16], color_256: index % 4 >= 2,
+                control: if index % 2 != 0 {
+                    video::OBJECT_MAPPING_LINEAR
+                } else {
+                    0
+                }
+            }
+            assertions::equal(u32.from(video::object_palette(memory, palette)), expected[index], 1146)?
+        }
+        return Ok(())
+    }
+}

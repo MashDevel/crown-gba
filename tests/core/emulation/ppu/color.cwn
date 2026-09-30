@@ -1,0 +1,47 @@
+fn test_color_effect_edges() -> u32 {
+    return match color_tests::run() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module color_tests {
+    fn run() -> Result<void, u32> {
+        var ppu = video::new()
+        let control: [u16; 10] = [513, 577, 641, 705, 512, 0, 577, 576, 65, 1]
+        let semi: [u8; 10] = [0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
+        let priority: [u8; 10] = [0, 0, 0, 0, 0, 0, 255, 0, 0, 0]
+        let expected: [u32; 10] = [0xff0000, 0x7b7b00, 0xff7b7b, 0x830000, 0x7b7b00, 0xff0000, 0xff0000, 0xff0000, 0xff0000, 0xff0000]
+        for index in 0..10 {
+            ppu.framebuffer[0] = 0xff0000
+            ppu.second_colors[0] = 0x00ff00
+            ppu.layers[0] = 0
+            ppu.second_layers[0] = 1
+            ppu.second_priorities[0] = priority[index]
+            ppu.semi[0] = semi[index]
+            video::apply_pixel_effect(ppu, video::PixelPosition {
+                    index: 0, x: 0
+                }, video::Effects {
+                    control: control[index], alpha: 0x0808, brightness: 8
+                })
+            assertions::equal(ppu.framebuffer[0], expected[index], 1120)?
+        }
+        return limits()
+    }
+
+    fn limits() -> Result<void, u32> {
+        assertions::equal(video::alpha_color(0xffffff, 0xffffff, 0x1f1f), 0xffffff, 1121)?
+        assertions::equal(video::alpha_color(0xffffff, 0xffffff, 0), 0, 1122)?
+        assertions::equal(video::brightness_color(0xff0000, 31, true), 0xffffff, 1123)?
+        assertions::equal(video::brightness_color(0xff0000, 31, false), 0, 1124)?
+        assertions::equal(video::brightness_color(0xff0000, 0, true), 0xff0000, 1125)?
+        for color in 0..32768 {
+            let expanded = video::bgr555_color(u16.from(color))
+            assertions::equal(u32.from(video::rgb_to_bgr555(expanded)), u32.from(color), 1126)?
+        }
+        return Ok(())
+    }
+}

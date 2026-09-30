@@ -117,7 +117,7 @@ fn test_mapped_io_bus_access(emulator: write emulator::State) -> u32 {
         return 318
     }
     bios::hard_reset(emulator)
-    return 0
+    return test_memory_regions(emulator)
 }
 
 fn test_system_register_writes(memory: write memory::State) -> u32 {

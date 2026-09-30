@@ -101,17 +101,17 @@ crown lint tests --output target/quality/suite.json
 crown lint tests/core --output target/quality/core.json
 crown lint tests/validation --output target/quality/validation.json
 crown duplication /path/to/workspace --output target/quality/duplication.json
-crown test . --filter headless --coverage target/quality/coverage
+crown test . --coverage target/quality/coverage
 crown coverage target/quality/coverage --output target/quality/coverage.json
 ```
 
-On Windows, also run `crown lint tests/windows --output target/quality/windows.json` for the native API tests.
+On Windows, also lint `tests/windows`, `tests/windows_gui`, and `tests/windows_playback` for the native API, GUI-subsystem, and worker-playback checks.
 
 Lint each project separately because the app and test executables have different entry points and source sets. The duplication command must receive the root of your full workspace so it scans source and tests as one corpus. The CI workspace contains both GBA and its Crown toolchain checkout.
 
 CI runs the full project suite, including the native Metal drawable check on macOS and native window, audio, and playback checks on Windows. Use `--filter headless` locally when a macOS desktop session is unavailable. For release QA, run all quality commands, inspect every host's reports, and perform the playback and save-persistence checks above. A failed lint or coverage command must remain a failed check.
 
-The initial release has existing structural and coverage failures. The macOS baseline has three files over the line limit and four functions over the cognitive complexity limit. Its full functional suite passes 24 checks, while GBA coverage is 82.19% of lines and 69.09% of branches. Those initial measurements compiled libraries as application sources; the current dependency model measures each project's owned sources. Formatting passes and GBA's source-and-test duplication is 1.01%, which is a project measurement rather than the required workspace result. These figures describe the initial baseline; CI reports contain the current measurements. Thresholds are enforced without waivers, so the quality workflow remains failing until the outstanding gaps are fixed.
+The functional suites, formatting, types, structural checks, and duplication checks pass on all six CI hosts. Coverage is still below the 95% line-and-branch requirement, so the workflow remains failing at that step. Reports contain the measurements for each host. Linux currently exercises the emulator and command line; automated Linux window and audio playback checks still need a test display and audio server.
 
 ## Windows
 

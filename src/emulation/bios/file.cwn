@@ -23,21 +23,13 @@ module bios {
         if length > memory::BIOS_SIZE {
             length = memory::BIOS_SIZE
         }
-        let allocated = host::allocate_buffer(length)
-        match move allocated {
-            Ok(buffer) => {
-                var loaded_buffer = move buffer
-                let loaded = host::read_host_file(file, loaded_buffer, length)
-                if loaded == false {
-                    return 23
-                }
-                copy_from_host(memory, loaded_buffer)
-                return 0
-            }
-            Err(code) => {
-                return code
-            }
+        var loaded_buffer = host::allocate_buffer(length)
+        let loaded = host::read_host_file(file, loaded_buffer, length)
+        if loaded == false {
+            return 23
         }
+        copy_from_host(memory, loaded_buffer)
+        return 0
     }
 
     fn copy_from_host(memory: write memory::State, buffer: host::Buffer) -> void {

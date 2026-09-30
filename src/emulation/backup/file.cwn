@@ -1,5 +1,5 @@
 module backup {
-    fn save_path(path: TextView) -> Result<host::Buffer, u32> {
+    fn save_path(path: TextView) -> host::Buffer {
         var end = path.length()
         var extension = path.length()
         var index: usize = 0
@@ -15,38 +15,23 @@ module backup {
         if extension != path.length() {
             end = extension
         }
-        let allocated = host::allocate_buffer(end + 5)
-        match move allocated {
-            Ok(buffer) => {
-                var result = move buffer
-                index = 0
-                while index < end {
-                    host::buffer_set(result, index, path[index])
-                    index = index + 1
-                }
-                host::buffer_set(result, end, 46)
-                host::buffer_set(result, end + 1, 115)
-                host::buffer_set(result, end + 2, 97)
-                host::buffer_set(result, end + 3, 118)
-                host::buffer_set(result, end + 4, 0)
-                return Ok(move result)
-            }
-            Err(code) => {
-                return Err(code)
-            }
+        var result = host::allocate_buffer(end + 5)
+        index = 0
+        while index < end {
+            host::buffer_set(result, index, path[index])
+            index = index + 1
         }
+        host::buffer_set(result, end, 46)
+        host::buffer_set(result, end + 1, 115)
+        host::buffer_set(result, end + 2, 97)
+        host::buffer_set(result, end + 3, 118)
+        host::buffer_set(result, end + 4, 0)
+        return move result
     }
 
     fn load(path: TextView, memory: write memory::State) -> u32 {
-        let created = save_path(path)
-        match move created {
-            Ok(save_path) => {
-                return load_backup_path(save_path, memory)
-            }
-            Err(code) => {
-                return code
-            }
-        }
+        let save_path = save_path(path)
+        return load_backup_path(save_path, memory)
     }
 
     fn load_backup_path(path: host::Buffer, memory: write memory::State) -> u32 {
@@ -78,20 +63,12 @@ module backup {
         if host::seek_host_file(file, 0, 0) < 0 {
             return 72
         }
-        let allocated = host::allocate_buffer(usize.from(size))
-        match move allocated {
-            Ok(buffer) => {
-                var loaded_buffer = move buffer
-                if host::read_host_file(file, loaded_buffer, usize.from(size)) == false {
-                    return 73
-                }
-                let result = read_backup_file(loaded_buffer, memory)
-                return result
-            }
-            Err(code) => {
-                return code
-            }
+        var loaded_buffer = host::allocate_buffer(usize.from(size))
+        if host::read_host_file(file, loaded_buffer, usize.from(size)) == false {
+            return 73
         }
+        let result = read_backup_file(loaded_buffer, memory)
+        return result
     }
 
     fn read_backup_file(buffer: host::Buffer, memory: write memory::State) -> u32 {
@@ -123,15 +100,8 @@ module backup {
         if size == 0 {
             return 0
         }
-        let created_path = save_path(path)
-        match move created_path {
-            Ok(save_path) => {
-                return save_backup_path(save_path, memory, size)
-            }
-            Err(code) => {
-                return code
-            }
-        }
+        let save_path = save_path(path)
+        return save_backup_path(save_path, memory, size)
     }
 
     fn save_backup_path(
@@ -139,48 +109,32 @@ module backup {
         memory: memory::State,
         size: usize
     ) -> u32 {
-        let allocated = host::allocate_buffer(size)
-        match move allocated {
-            Ok(buffer) => {
-                var result = move buffer
-                var index: usize = 0
-                while index < size {
-                    host::buffer_set(result, index, memory.backup[index])
-                    index = index + 1
-                }
-                return write_backup_file(path, result)
-            }
-            Err(code) => {
-                return code
-            }
+        var result = host::allocate_buffer(size)
+        var index: usize = 0
+        while index < size {
+            host::buffer_set(result, index, memory.backup[index])
+            index = index + 1
         }
+        return write_backup_file(path, result)
     }
 
-    fn temporary_backup_path(path: host::Buffer) -> Result<host::Buffer, u32> {
+    fn temporary_backup_path(path: host::Buffer) -> host::Buffer {
         let suffix: [u8; 11] = [46, 116, 109, 112, 46, 88, 88, 88, 88, 88, 88]
         let path_length = host::buffer_length(path)
-        let allocated = host::allocate_buffer(path_length + 11)
-        match move allocated {
-            Ok(buffer) => {
-                var result = move buffer
-                var index: usize = 0
-                while index + 1 < path_length {
-                    host::buffer_set(result, index, host::buffer_get(path, index))
-                    index = index + 1
-                }
-                var suffix_index: usize = 0
-                while suffix_index < 11 {
-                    host::buffer_set(result, index, suffix[suffix_index])
-                    suffix_index = suffix_index + 1
-                    index = index + 1
-                }
-                host::buffer_set(result, index, 0)
-                return Ok(move result)
-            }
-            Err(code) => {
-                return Err(code)
-            }
+        var result = host::allocate_buffer(path_length + 11)
+        var index: usize = 0
+        while index + 1 < path_length {
+            host::buffer_set(result, index, host::buffer_get(path, index))
+            index = index + 1
         }
+        var suffix_index: usize = 0
+        while suffix_index < 11 {
+            host::buffer_set(result, index, suffix[suffix_index])
+            suffix_index = suffix_index + 1
+            index = index + 1
+        }
+        host::buffer_set(result, index, 0)
+        return move result
     }
 
     fn write_backup_descriptor(file: write host::File, buffer: host::Buffer) -> u32 {
@@ -226,15 +180,8 @@ module backup {
     }
 
     fn write_backup_file(path: host::Buffer, buffer: host::Buffer) -> u32 {
-        let created = temporary_backup_path(path)
-        match move created {
-            Ok(temporary) => {
-                return persist_backup_file(path, move temporary, buffer)
-            }
-            Err(code) => {
-                return code
-            }
-        }
+        let temporary = temporary_backup_path(path)
+        return persist_backup_file(path, move temporary, buffer)
     }
 
     fn data_size(memory: memory::State) -> usize {

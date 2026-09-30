@@ -1,0 +1,73 @@
+fn test_object_attributes() -> u32 {
+    return match object_tests::attributes() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module object_tests {
+    fn attributes() -> Result<void, u32> {
+        let flags: [u16; 8] = [0, 512, 768, 0xc000, 0, 0, 0, 0]
+        let modes: [u16; 8] = [0, 0, 0, 0, 3, 3, 2, 5]
+        let tiles: [u16; 8] = [0, 0, 0, 0, 511, 512, 511, 512]
+        let valid: [u32; 8] = [1, 0, 1, 0, 0, 1, 1, 1]
+        for index in 0..8 {
+            let attributes = video::ObjectAttributes {
+                attr0: flags[index], attr1: 0, attr2: tiles[index]
+            }
+            assertions::equal(bits::bool_u32(video::object_valid(attributes, modes[index])), valid[index], 1130)?
+        }
+        sizes()?
+        visibility()?
+        return samples()
+    }
+
+    fn sizes() -> Result<void, u32> {
+        let widths: [u32; 12] = [8, 16, 32, 64, 16, 32, 32, 64, 8, 8, 16, 32]
+        let heights: [u32; 12] = [8, 16, 32, 64, 8, 8, 16, 32, 16, 32, 32, 64]
+        for index in 0..12 {
+            let size = video::object_size(u16.from(index / 4) << 14, u16.from(index % 4) << 14)
+            assertions::equal(u32.from(size[0]), widths[index], 1131)?
+            assertions::equal(u32.from(size[1]), heights[index], 1132)?
+        }
+        let flags: [u16; 4] = [0, 256, 512, 768]
+        for index in 0..4 {
+            let size = video::object_render_size(flags[index], [8, 16])
+            let scale: u32 = if index == 3 {
+                2
+            } else {
+                1
+            }
+            assertions::equal(u32.from(size[0]), 8 * scale, 1133)?
+            assertions::equal(u32.from(size[1]), 16 * scale, 1134)?
+        }
+        return Ok(())
+    }
+
+    fn visibility() -> Result<void, u32> {
+        let x: [u16; 8] = [0, 504, 505, 239, 240, 255, 256, 511]
+        let visible: [u32; 8] = [1, 0, 1, 1, 0, 0, 0, 1]
+        for index in 0..8 {
+            let visibility = video::ObjectVisibility {
+                attributes: video::ObjectAttributes {
+                    attr0: 0, attr1: x[index], attr2: 0
+                }, line: 0, render_size: [8, 8]
+            }
+            assertions::equal(bits::bool_u32(video::object_line_visible(visibility)), visible[index], 1135)?
+        }
+        let lines: [usize; 4] = [0, 3, 4, 159]
+        let expected: [u32; 4] = [1, 1, 0, 0]
+        for index in 0..4 {
+            let visibility = video::ObjectVisibility {
+                attributes: video::ObjectAttributes {
+                    attr0: 252, attr1: 0, attr2: 0
+                }, line: lines[index], render_size: [8, 8]
+            }
+            assertions::equal(bits::bool_u32(video::object_line_visible(visibility)), expected[index], 1136)?
+        }
+        return Ok(())
+    }
+}

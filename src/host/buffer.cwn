@@ -13,12 +13,12 @@ module host {
         }
     }
 
-    fn allocate_buffer(length: usize) -> Result<Buffer, u32> {
+    fn allocate_buffer(length: usize) -> Buffer {
         let data = std::bytes::filled(length, 0)
         unsafe {
-            return Ok(Buffer {
-                    data: move data, length: length
-                })
+            return Buffer {
+                data: move data, length: length
+            }
         }
     }
 
