@@ -1,0 +1,10 @@
+[package]
+name = "gba_windows_playback_tests"
+sources = ["../../src", "."]
+exclude = ["../../src/main.cwn"]
+
+[toolchain]
+libraries = ["platform", "integrations"]
+
+[target.windows]
+subsystem = "windows"

@@ -84,7 +84,7 @@ jobs:
         run: |
           status=0
           projects=(. tests tests/core tests/validation)
-          if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows tests/windows_gui); fi
+          if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows tests/windows_gui tests/windows_playback); fi
           for project in "${projects[@]}"; do
             name=${project//\//-}
             crown lint "$project" --output "target/ci/metrics-$name.json" || status=1

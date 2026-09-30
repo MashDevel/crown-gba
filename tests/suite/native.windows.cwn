@@ -8,6 +8,9 @@ module gba_tests {
         check_program(context, "native_windows", project_binary(root, "gba_windows_tests"), 0, "")?
         let gui = toolchain::path_join(context.root, "tests/windows_gui")
         build_project(context, gui, "windows_gui")?
-        return check_program(context, "native_windows_gui", project_binary(gui, "gba_windows_gui_tests"), 0, "")
+        check_program(context, "native_windows_gui", project_binary(gui, "gba_windows_gui_tests"), 0, "")?
+        let playback = toolchain::path_join(context.root, "tests/windows_playback")
+        build_project(context, playback, "windows_playback")?
+        return check_program(context, "native_windows_playback", project_binary(playback, "gba_windows_playback_tests"), 0, "@rom")
     }
 }

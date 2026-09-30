@@ -1,0 +1,32 @@
+fn main(arguments: Arguments) -> u32 {
+    if arguments.length() != 2 {
+        return 1
+    }
+    let cartridge = match cartridge::load(arguments[1]) {
+        Ok(value) => move value,
+        Err(code) => {
+            return code
+        }
+    }
+    let machine = emulator::new(move cartridge)
+    var controller = spawn move {
+        playback_tests::close_after_playback()
+    }
+    let result = app::run_native_frontend(move machine)
+    controller.join()
+    match move result {
+        Some(finished) => {
+            if finished.code != 0 {
+                return finished.code
+            }
+            return if finished.emulator.devices.frames >= 2 {
+                0
+            } else {
+                2
+            }
+        }
+        None => {
+            return 3
+        }
+    }
+}
