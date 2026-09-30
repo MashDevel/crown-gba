@@ -18,7 +18,8 @@ module channel_tests {
         sweeps()?
         noise()?
         waves()?
-        return registers()
+        registers()?
+        return boundaries()
     }
 
     fn lengths() -> Result<void, u32> {

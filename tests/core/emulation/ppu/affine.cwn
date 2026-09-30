@@ -1,0 +1,56 @@
+fn test_affine_boundaries() -> u32 {
+    return match affine_tests::run() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module affine_tests {
+    fn run() -> Result<void, u32> {
+        let values: [i32; 6] = [-1, 128, -1, 128, 127, 0]
+        let wrapped: [bool; 6] = [true, true, false, false, false, true]
+        let expected: [i32; 6] = [127, 0, -1, -1, 127, 0]
+        for index in 0..6 {
+            assertions::equal(u32.from_bits(video::affine_coordinate(values[index], 128, wrapped[index])), u32.from_bits(expected[index]), 1320)?
+        }
+        var memory = memory::new()
+        pixels(memory)?
+        advance(memory)?
+        return registers(memory)
+    }
+
+    fn pixels(memory: write memory::State) -> Result<void, u32> {
+        memory::io_store16(memory, video::BACKGROUND_CONTROL + 4, video::BACKGROUND_MOSAIC)
+        memory::io_store16(memory, video::MOSAIC, 0x23)
+        memory::io_store16(memory, video::AFFINE_2 + 2, 256)
+        memory::io_store16(memory, video::AFFINE_2 + 6, 512)
+        var config = video::affine_config(memory, 2, 2)
+        assertions::equal(u32.from(config.mosaic_x), 4, 1321)?
+        assertions::equal(u32.from_bits(config.line_x), u32.from_bits(-512), 1322)?
+        assertions::equal(u32.from_bits(config.line_y), u32.from_bits(-1024), 1323)?
+        assertions::equal(bits::bool_u32(video::affine_pixel(memory, config, 0).visible), 0, 1324)?
+        config.line_x = 0
+        assertions::equal(bits::bool_u32(video::affine_pixel(memory, config, 0).visible), 0, 1325)?
+        config.line_y = 0
+        return assertions::equal(bits::bool_u32(video::affine_pixel(memory, config, 0).visible), 0, 1326)
+    }
+
+    fn advance(memory: write memory::State) -> Result<void, u32> {
+        memory::io_store16(memory, video::AFFINE_2 + 2, 1)
+        memory::io_store16(memory, video::AFFINE_2 + 6, 2)
+        memory::io_store16(memory, video::AFFINE_2 + video::AFFINE_REGISTER_STRIDE + 2, 3)
+        memory::io_store16(memory, video::AFFINE_2 + video::AFFINE_REGISTER_STRIDE + 6, 4)
+        let controls: [u16; 7] = [0x0c82, 0x0c01, 0x0c02, 0x0405, 0x0406, 0x0400, 2]
+        let x: [u32; 7] = [0, 1, 2, 3, 3, 3, 3]
+        let y: [u32; 7] = [0, 0, 4, 4, 4, 4, 4]
+        for index in 0..7 {
+            video::advance_affine_references(memory, controls[index])
+            assertions::equal(u32.from(memory.affine_references[0]), x[index], 1327)?
+            assertions::equal(u32.from(memory.affine_references[3]), y[index], 1328)?
+        }
+        return Ok(())
+    }
+}

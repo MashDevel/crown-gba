@@ -1,0 +1,63 @@
+fn test_audio_clock_boundaries() -> u32 {
+    return match audio_clock_tests::run() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module audio_clock_tests {
+    fn run() -> Result<void, u32> {
+        var queue = app::new_audio_queue(100)
+        var clock = app::AudioClock {
+            now: 10, ticks_per_second: 0, rate: 100
+        }
+        assertions::equal64(app::audio_elapsed_frames(queue, clock), 0, 1240)?
+        clock.ticks_per_second = 10
+        clock.rate = 0
+        assertions::equal64(app::audio_elapsed_frames(queue, clock), 0, 1241)?
+        clock.rate = 100
+        queue.last_tick = 11
+        assertions::equal64(app::audio_elapsed_frames(queue, clock), 0, 1242)?
+        assertions::equal64(queue.last_tick, 11, 1243)?
+        saturation(queue)?
+        return waits(queue)
+    }
+
+    fn saturation(queue: write app::AudioQueue) -> Result<void, u32> {
+        assertions::equal(app::audio_frames_for_millis(0xffffffff, 0xffffffff), 0xffffffff, 1244)?
+        queue.last_tick = 0
+        let clock = app::AudioClock {
+            now: 0xffffffffffffffff, ticks_per_second: 2, rate: 3
+        }
+        assertions::equal64(app::audio_elapsed_frames(queue, clock), 0xffffffffffffffff, 1245)?
+        assertions::equal64(queue.remainder, 1, 1246)?
+        queue.last_tick = 0
+        queue.remainder = 0
+        queue.queued_frames = 0
+        queue.underrun_frames = 0xfffffffffffffffe
+        app::audio_queue_advance(queue, app::AudioClock {
+                now: 3, ticks_per_second: 1, rate: 1
+            })
+        assertions::equal64(queue.underrun_frames, 0xffffffffffffffff, 1247)?
+        return Ok(())
+    }
+
+    fn waits(queue: write app::AudioQueue) -> Result<void, u32> {
+        queue.queued_frames = 500
+        var clock = app::AudioClock {
+            now: 0, ticks_per_second: 0, rate: 100
+        }
+        assertions::equal64(app::audio_queue_wait_ticks(queue, clock), 0, 1248)?
+        clock.ticks_per_second = 1000
+        clock.rate = 0
+        assertions::equal64(app::audio_queue_wait_ticks(queue, clock), 0, 1249)?
+        clock.rate = 100
+        assertions::equal64(app::audio_queue_wait_ticks(queue, clock), 1000, 1250)?
+        queue.queued_frames = u64.from(queue.target_frames)
+        assertions::equal64(app::audio_queue_wait_ticks(queue, clock), 0, 1251)?
+        return Ok(())
+    }
+}

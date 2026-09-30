@@ -1,0 +1,21 @@
+module affine_tests {
+    fn registers(memory: write memory::State) -> Result<void, u32> {
+        let offsets: [usize; 7] = [0x50, 0x52, 0x54, 0x51, 0x55, 0xf, 0x1f]
+        let expected: [u32; 7] = [65535, 65535, 65535, 0, 0, 0, 0]
+        for index in 0..7 {
+            let value = match video::register_write_mask(offsets[index]) {
+                Some(mask) => u32.from(mask)
+                None => 0
+            }
+            assertions::equal(value, expected[index], 1540)?
+        }
+        memory::io_store32(memory, video::REFERENCE_3, 0x123)
+        memory.affine_references[2] = 1
+        memory::io_store16(memory, video::VCOUNT, 160)
+        video::update_affine_reference(memory, video::REFERENCE_3)
+        assertions::equal(u32.from(memory.affine_references[2]), 1, 1541)?
+        memory::io_store16(memory, video::VCOUNT, 0)
+        video::update_affine_reference(memory, video::REFERENCE_3)
+        return assertions::equal(u32.from(memory.affine_references[2]), 0x123, 1542)
+    }
+}

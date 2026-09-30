@@ -24,7 +24,8 @@ module memory_tests {
         }
         raw_bounds(emulator)?
         timers(emulator)?
-        return mapped_bytes(emulator)
+        mapped_bytes(emulator)?
+        return edges(emulator)
     }
 
     fn raw_bounds(emulator: write emulator::State) -> Result<void, u32> {

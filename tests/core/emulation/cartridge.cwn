@@ -64,7 +64,11 @@ fn test_cartridge_wrapping() -> u32 {
     if normal != 0 {
         return normal
     }
-    test_power_cartridge_reads()
+    let power = test_power_cartridge_reads()
+    if power != 0 {
+        return power
+    }
+    test_cartridge_edges()
 }
 
 fn test_cartridge_masks() -> u32 {

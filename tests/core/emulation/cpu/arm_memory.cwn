@@ -1,0 +1,68 @@
+module instruction_tests {
+    fn arm_memory(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu = cpu::new()
+        let address: u32 = 0x02004000
+        memory::write32(emulator.memory, address, 0x12345678)
+        emulator.cpu.registers[0] = address + 4
+        assertions::equal(cpu::arm::execute_single(emulator, 0xe5301004), 3, 1480)?
+        assertions::equal(emulator.cpu.registers[1], 0x12345678, 1481)?
+        assertions::equal(emulator.cpu.registers[0], address, 1482)?
+        assertions::equal(cpu::arm::execute_single(emulator, 0xe4d02001), 3, 1483)?
+        assertions::equal(emulator.cpu.registers[2], 0x78, 1484)?
+        assertions::equal(emulator.cpu.registers[0], address + 1, 1485)?
+        arm_stores(emulator)?
+        arm_halfwords(emulator)?
+        arm_blocks(emulator)?
+        return decoder_edges(emulator)
+    }
+
+    fn arm_stores(emulator: write emulator::State) -> Result<void, u32> {
+        let address: u32 = 0x02004000
+        emulator.cpu.registers[0] = address
+        emulator.cpu.registers[1] = 0xab
+        emulator.cpu.registers[2] = 1
+        assertions::equal(cpu::arm::execute_single(emulator, 0xe7c01102), 2, 1486)?
+        assertions::equal(u32.from(bus::read8(emulator, address + 4)), 0xab, 1487)?
+        memory::write32(emulator.memory, address, 0x02005001)
+        assertions::equal(cpu::arm::execute_single(emulator, 0xe590f000), 5, 1488)?
+        assertions::equal(emulator.cpu.registers[cpu::PC], 0x02005000, 1489)?
+        return Ok(())
+    }
+
+    fn arm_halfwords(emulator: write emulator::State) -> Result<void, u32> {
+        let address: u32 = 0x02004000
+        memory::write16(emulator.memory, address, 0x1234)
+        emulator.cpu.registers[0] = address + 2
+        emulator.cpu.registers[2] = 2
+        assertions::equal(cpu::arm::execute_halfword(emulator, 0xe11010b2), 3, 1490)?
+        assertions::equal(emulator.cpu.registers[1], 0x1234, 1491)?
+        assertions::equal(emulator.cpu.registers[0], address + 2, 1492)?
+        assertions::equal(cpu::arm::execute_halfword(emulator, 0xe05010b2), 3, 1493)?
+        return assertions::equal(emulator.cpu.registers[0], address, 1494)
+    }
+
+    fn arm_blocks(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu = cpu::new()
+        assertions::equal(cpu::arm::execute_block(emulator, 0xe8900000), 1, 1495)?
+        emulator.cpu.registers[0] = 0x02006000
+        emulator.cpu.registers[1] = 0x1234
+        assertions::equal(cpu::arm::execute_block(emulator, 0xe9800003), 3, 1496)?
+        assertions::equal(bus::read32(emulator, 0x02006004), 0x02006000, 1497)?
+        emulator.cpu.registers[0] = 0x02006000
+        assertions::equal(cpu::arm::execute_block(emulator, 0xe9000003), 3, 1498)?
+        assertions::equal(bus::read32(emulator, 0x02005ff8), 0x02006000, 1499)?
+        emulator.cpu.registers[0] = 0x02006000
+        assertions::equal(cpu::arm::execute_block(emulator, 0xe8b00003), 4, 1500)?
+        return arm_return(emulator)
+    }
+
+    fn arm_return(emulator: write emulator::State) -> Result<void, u32> {
+        cpu::switch_mode(emulator.cpu, cpu::SUPERVISOR_MODE)
+        cpu::set_spsr(emulator.cpu, cpu::SUPERVISOR_MODE, cpu::SYSTEM_MODE | 0x20)
+        emulator.cpu.registers[0] = 0x02006000
+        memory::write32(emulator.memory, 0x02006000, 0x02007003)
+        assertions::equal(cpu::arm::execute_block(emulator, 0xe8d08000), 5, 1501)?
+        assertions::equal(emulator.cpu.registers[cpu::PC], 0x02007002, 1502)?
+        return assertions::equal(bits::bool_u32(cpu::thumb(emulator.cpu)), 1, 1503)
+    }
+}

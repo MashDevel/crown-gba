@@ -1,0 +1,28 @@
+module instruction_tests {
+    fn arithmetic_edges() -> Result<void, u32> {
+        var state = cpu::new()
+        state.registers[cpu::PC] = 0x02000100
+        assertions::equal(cpu::arm::operand_value(state, cpu::PC, false), 0x02000104, 1620)?
+        let rotated = cpu::arm::data_operand(state, 0xe3b00480)
+        assertions::equal(rotated.value, 0x80000000, 1621)?
+        assertions::equal(bits::bool_u32(rotated.carry), 1, 1622)?
+        cpu::set_flag(state, cpu::CARRY, false)
+        let no_carry = cpu::arm::adc_outcome(state, 1, 1)
+        assertions::equal(no_carry.value, 2, 1623)?
+        cpu::set_flag(state, cpu::CARRY, true)
+        let overflow = cpu::arm::adc_outcome(state, 0x80000000, 0xffffffff)
+        assertions::equal(bits::bool_u32(overflow.overflow), 0, 1624)?
+        let carry = cpu::arm::adc_outcome(state, 0xffffffff, 0)
+        assertions::equal(carry.value, 0, 1625)?
+        assertions::equal(bits::bool_u32(carry.carry), 1, 1626)?
+        let negative = cpu::arm::adc_outcome(state, 0x80000000, 0xfffffffe)
+        assertions::equal(bits::bool_u32(negative.overflow), 1, 1627)?
+        return pc_write(state)
+    }
+
+    fn pc_write(state: write cpu::State) -> Result<void, u32> {
+        let outcome = cpu::arm::logical_outcome(0x02001003, false, true)
+        assertions::equal(cpu::arm::apply_data(state, 0xe1a0f000, outcome), 3, 1628)?
+        return assertions::equal(state.registers[cpu::PC], 0x02001000, 1629)
+    }
+}

@@ -1,0 +1,73 @@
+fn test_bios_reset_edges(emulator: write emulator::State) -> u32 {
+    return match reset_tests::run(emulator) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module reset_tests {
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        for target in 0..2 {
+            emulator.memory.iwram[0] = 90
+            emulator.memory.iwram[bios::RESERVED_IWRAM] = 91
+            emulator.memory.iwram[bios::RESET_DESTINATION] = u8.from(target)
+            bios::handle_swi(emulator, bios::call::SOFT_RESET)
+            let address: u32 = if target == 0 {
+                memory::ROM_START
+            } else {
+                memory::EWRAM_START
+            }
+            assertions::equal(emulator.cpu.registers[cpu::PC], address, 1260)?
+            assertions::equal(u32.from(emulator.memory.iwram[0]), 90, 1261)?
+            assertions::equal(u32.from(emulator.memory.iwram[bios::RESERVED_IWRAM]), 0, 1262)?
+        }
+        no_reset(emulator)?
+        debug_text(emulator)?
+        system_calls(emulator)?
+        bios::hard_reset(emulator)
+        return Ok(())
+    }
+
+    fn no_reset(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.memory.ewram[0] = 77
+        emulator.memory.vram[0] = 88
+        emulator.cpu.registers[0] = 0
+        bios::handle_swi(emulator, bios::call::RAM_RESET)
+        assertions::equal(u32.from(emulator.memory.ewram[0]), 77, 1263)?
+        assertions::equal(u32.from(emulator.memory.vram[0]), 88, 1264)?
+        return Ok(())
+    }
+
+    fn debug_text(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu.registers[0] = memory::EWRAM_START
+        memory::write32(emulator.memory, memory::EWRAM_START, 0x434241)
+        var full = host::allocate_buffer(8)
+        assertions::equal64(u64.from(bios::copy_debug_text(emulator, full)), 3, 1265)?
+        assertions::equal(u32.from(host::buffer_get(full, 2)), 67, 1266)?
+        var short = host::allocate_buffer(2)
+        assertions::equal64(u64.from(bios::copy_debug_text(emulator, short)), 2, 1267)?
+        assertions::equal(u32.from(host::buffer_get(short, 1)), 66, 1268)?
+        var empty = host::allocate_buffer(0)
+        assertions::equal64(u64.from(bios::copy_debug_text(emulator, empty)), 0, 1269)?
+        memory::write32(emulator.memory, memory::EWRAM_START, 0)
+        bios::handle_swi(emulator, bios::call::DEBUG_PRINT)
+        return Ok(())
+    }
+
+    fn system_calls(emulator: write emulator::State) -> Result<void, u32> {
+        bios::handle_swi(emulator, bios::call::CHECKSUM)
+        assertions::equal(emulator.cpu.registers[0], 0xbaae187f, 1270)?
+        bios::handle_swi(emulator, bios::call::MULTIBOOT)
+        assertions::equal(emulator.cpu.registers[0], 0, 1271)?
+        let calls: [u32; 3] = [bios::call::HALT, bios::call::STOP, bios::call::CUSTOM_HALT]
+        for index in 0..3 {
+            emulator.cpu.halted = false
+            bios::handle_swi(emulator, calls[index])
+            assertions::equal(bits::bool_u32(emulator.cpu.halted), 1, 1272)?
+        }
+        return Ok(())
+    }
+}

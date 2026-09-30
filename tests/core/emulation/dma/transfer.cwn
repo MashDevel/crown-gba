@@ -1,0 +1,75 @@
+fn test_dma_transfer_edges(emulator: write emulator::State) -> u32 {
+    let result = dma_tests::run(emulator)
+    bios::hard_reset(emulator)
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module dma_tests {
+    const SOURCE: u32 = 0x02002000
+    const OUTPUT: u32 = 0x03001000
+
+    fn setup(emulator: write emulator::State, index: usize, control: u16, count: u16) -> void {
+        emulator.devices = devices::new()
+        let offset = dma::BASE + index * dma::STRIDE
+        memory::io_store32(emulator.memory, offset, SOURCE)
+        memory::io_store32(emulator.memory, offset + dma::DESTINATION, OUTPUT)
+        memory::io_store16(emulator.memory, offset + dma::COUNT, count)
+        memory::io_store16(emulator.memory, offset + dma::CONTROL, control)
+        memory::write32(emulator.memory, SOURCE, 0x12345678)
+        memory::write32(emulator.memory, OUTPUT, 0)
+    }
+
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        setup(emulator, 3, 0xd260, 1)
+        dma::transfer(emulator, 3)
+        assertions::equal(emulator.devices.dma_destination[3], OUTPUT, 1380)?
+        assertions::equal(emulator.devices.dma_source[3], SOURCE + 2, 1381)?
+        dma::transfer(emulator, 3)
+        assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, OUTPUT)), 0x1234, 1382)?
+        assertions::equal(u32.from(memory::io_read16(emulator.memory, system::INTERRUPT_FLAGS) &(1 << 11)), 1 << 11, 1383)?
+        setup(emulator, 0, 0x91a0, 1)
+        dma::transfer(emulator, 0)
+        assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, OUTPUT)), 0x5678, 1384)?
+        counts(emulator)?
+        return blocking(emulator)
+    }
+
+    fn counts(emulator: write emulator::State) -> Result<void, u32> {
+        let channels: [usize; 2] = [0, 3]
+        let limits: [u32; 2] = [0x4000, 0x10000]
+        for index in 0..2 {
+            setup(emulator, channels[index], 0x9240, 0)
+            dma::transfer(emulator, channels[index])
+            assertions::equal(emulator.devices.dma_source[channels[index]], SOURCE + limits[index] * 2, 1385)?
+        }
+        let modes: [u16; 4] = [0, 1, 2, 3]
+        let steps: [u32; 4] = [4, 0xfffffffc, 0, 4]
+        for index in 0..4 {
+            assertions::equal(dma::address_step(modes[index], 4), steps[index], 1386)?
+        }
+        return Ok(())
+    }
+
+    fn blocking(emulator: write emulator::State) -> Result<void, u32> {
+        memory::io_store16(emulator.memory, video::CONTROL, 0)
+        let destinations: [u32; 4] = [memory::OAM_START, memory::VRAM_START, memory::VRAM_START + 65536, OUTPUT]
+        let expected: [u32; 4] = [1, 0, 1, 0]
+        for index in 0..4 {
+            let plan = dma::Plan {
+                index: 0, source: SOURCE, destination: destinations[index], count: 1,
+                control: 0xa000, word: false, source_step: 2, destination_step: 2
+            }
+            assertions::equal(bits::bool_u32(dma::hblank_blocked(emulator.memory, plan)), expected[index], 1387)?
+            memory::io_store16(emulator.memory, video::CONTROL, video::HBLANK_OBJECT_ACCESS)
+            assertions::equal(bits::bool_u32(dma::hblank_blocked(emulator.memory, plan)), 0, 1388)?
+            memory::io_store16(emulator.memory, video::CONTROL, 0)
+        }
+        return Ok(())
+    }
+}

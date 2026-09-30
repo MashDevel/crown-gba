@@ -20,7 +20,8 @@ module player_tests {
         rejected_open(emulator)?
         limited_tracks(emulator)?
         rejected_commands(emulator)?
-        return priority(emulator)
+        priority(emulator)?
+        return track_chain(emulator)
     }
 
     fn rejected_open(emulator: write emulator::State) -> Result<void, u32> {

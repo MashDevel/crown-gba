@@ -1,0 +1,28 @@
+fn test_timer_edges() -> u32 {
+    return match timer_tests::edges() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module timer_tests {
+    fn edges() -> Result<void, u32> {
+        var memory = memory::new()
+        timers::timer_write_register(memory, memory::io_address(timers::BASE), 10)
+        timers::timer_write_register(memory, memory::io_address(timers::BASE + 2), timers::ENABLE)
+        timers::timer_write_register(memory, memory::io_address(timers::BASE), 20)
+        assertions::equal(u32.from(memory.timer_counter[0]), 10, 1640)?
+        timers::timer_write_register(memory, memory::io_address(timers::BASE + 10), timers::ENABLE)
+        timers::advance_quiet(memory, 2)
+        assertions::equal(u32.from(memory.timer_counter[0]), 12, 1641)?
+        assertions::equal(u32.from(memory.timer_counter[2]), 2, 1642)?
+        let advanced = timers::step(memory, 2)
+        assertions::equal(advanced[1], 0, 1643)?
+        timers::timer_write_register(memory, memory::io_address(timers::BASE + 14), timers::ENABLE | timers::CASCADE)
+        let cascaded = timers::step(memory, 1)
+        return assertions::equal(cascaded[2], 0, 1644)
+    }
+}

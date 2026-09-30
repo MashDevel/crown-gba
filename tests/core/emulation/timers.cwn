@@ -220,6 +220,10 @@ fn test_timer_quiet_multiple(memory: write memory::State) -> u32 {
 }
 
 fn test_timers(memory: write memory::State) -> u32 {
+    let edges = test_timer_edges()
+    if edges != 0 {
+        return edges
+    }
     let enable = test_timer_enable_and_reload(memory)
     if enable != 0 {
         return enable

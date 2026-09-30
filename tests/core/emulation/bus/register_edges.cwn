@@ -1,0 +1,24 @@
+module memory_tests {
+    fn register_edges(emulator: write emulator::State) -> Result<void, u32> {
+        memory::io_store16(emulator.memory, 0x56, 0x1234)
+        assertions::equal(u32.from(memory::io_read8(emulator.memory, 0x56)), 0x34, 1740)?
+        memory::io_store16(emulator.memory, 0x220, 0x5678)
+        assertions::equal(u32.from(memory::io_read8(emulator.memory, 0x221)), 0x56, 1741)?
+        memory::write16(emulator.memory, 0x04000056, 1)
+        memory::write16(emulator.memory, 0x040000e0, 1)
+        memory::write8(emulator.memory, 0x04000208, 1)
+        memory::write8(emulator.memory, 0x04000209, 0)
+        assertions::equal(u32.from(memory::io_read16(emulator.memory, system::INTERRUPT_MASTER)), 1, 1742)?
+        memory::write8(emulator.memory, 0x06018000, 0x42)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, 0x06010000)), 0x42, 1743)?
+        emulator.bus_charging = true
+        emulator.access_penalty_cycles = 0
+        bus::charge_access(emulator, memory::SAVE_START, 1)
+        assertions::equal(emulator.access_penalty_cycles, emulator.memory.backup_wait, 1744)?
+        bus::charge_access(emulator, 0xff000000, 4)
+        assertions::equal(bits::bool_u32(emulator.gamepak_seq_valid), 0, 1745)?
+        assertions::equal(bus::gamepak_halfword_wait(emulator.memory, 0x10000000, false), emulator.memory.gamepak_wait_first[2], 1746)?
+        emulator.bus_charging = false
+        return Ok(())
+    }
+}

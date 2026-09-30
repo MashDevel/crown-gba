@@ -19,6 +19,7 @@ module instruction_tests {
         thumb_stack(emulator)?
         thumb_branches(emulator)?
         banks()?
+        arm_status(emulator)?
         return shift_cases()
     }
 

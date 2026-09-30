@@ -10,7 +10,9 @@ module instruction_tests {
             assertions::equal(shifted.value, results[index], 870 + u32.from(index))?
             assertions::equal(bits::bool_u32(shifted.carry), bits::bool_u32(carries[index]), 890 + u32.from(index))?
         }
-        return immediate_shifts()
+        immediate_shifts()?
+        shift_edges()?
+        return arithmetic_edges()
     }
 
     fn immediate_shifts() -> Result<void, u32> {
@@ -28,5 +30,26 @@ module instruction_tests {
             })
         assertions::equal(positive.value, 0, 912)?
         return assertions::equal(bits::bool_u32(positive.carry), 0, 913)
+    }
+}
+
+module instruction_tests {
+    fn shift_edges() -> Result<void, u32> {
+        let expected: [u32; 4] = [2, 0x40000000, 0xc0000000, 0xc0000000]
+        for kind in 0..4 {
+            let shifted = cpu::immediate_shift(cpu::ShiftRequest {
+                    value: 0x80000001, kind: u32.from(kind), amount: 1, old_carry: false
+                })
+            assertions::equal(shifted.value, expected[kind], 1520)?
+            assertions::equal(bits::bool_u32(shifted.carry), 1, 1521)?
+        }
+        let negative = cpu::immediate_shift(cpu::ShiftRequest {
+                value: 0x80000000, kind: 2, amount: 0, old_carry: false
+            })
+        assertions::equal(negative.value, 0xffffffff, 1522)?
+        let extend = cpu::immediate_shift(cpu::ShiftRequest {
+                value: 3, kind: 3, amount: 0, old_carry: false
+            })
+        return assertions::equal(extend.value, 1, 1523)
     }
 }

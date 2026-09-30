@@ -287,5 +287,5 @@ fn test_poll_loops() -> u32 {
         }
         variant = variant + 1
     }
-    return 0
+    return test_poll_edges()
 }

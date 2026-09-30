@@ -1,0 +1,9 @@
+module gba_tests {
+    fn run_file_errors(context: write Context) -> Result<void, Text> {
+        check_program(context, "cli_missing_cartridge", context.binary.clone(), 10, "@missing_bios|--steps|0")?
+        check_program(context, "cli_conflicting_legacy_screenshot", context.binary.clone(), 4, "@rom|--steps|0|screenshot|@option")?
+        check_program(context, "cli_duplicate_bios", context.binary.clone(), 4, "@rom|@rom|@rom|--steps|0")?
+        check_program(context, "cli_unwritable_screenshot", context.binary.clone(), 61, "@rom|--steps|0|--screenshot|@root")?
+        return Ok(())
+    }
+}

@@ -17,7 +17,8 @@ module driver_tests {
         absent(emulator)?
         defaults(emulator)?
         invalid_identifiers(emulator)?
-        return counters(emulator)
+        counters(emulator)?
+        return dispatch_edges(emulator)
     }
 
     fn absent(emulator: write emulator::State) -> Result<void, u32> {

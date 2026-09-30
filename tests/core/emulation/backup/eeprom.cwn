@@ -1,0 +1,55 @@
+fn test_eeprom_boundaries() -> u32 {
+    return match eeprom_tests::run() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module eeprom_tests {
+    fn run() -> Result<void, u32> {
+        let payloads: [usize; 6] = [8, 9, 16, 17, 7, 18]
+        let widths: [u32; 6] = [6, 6, 14, 14, 0, 0]
+        for index in 0..6 {
+            assertions::equal(u32.from(backup::eeprom_address_width(payloads[index], 0)), widths[index], 1340)?
+            assertions::equal(u32.from(backup::eeprom_address_width(payloads[index] + 64, 64)), widths[index], 1341)?
+        }
+        var memory = memory::new()
+        invalid(memory)?
+        memory.eeprom_address_bits = 14
+        memory.backup[8184] = 0x81
+        backup::eeprom_prepare_read(memory, 2047)
+        backup::eeprom_prepare_read(memory, 1023)
+        assertions::equal(u32.from(memory.eeprom_read.length()), 68, 1342)?
+        for index in 0..4 {
+            index;
+            assertions::equal(u32.from(backup::eeprom_read16(memory)), 0, 1343)?
+        }
+        assertions::equal(u32.from(backup::eeprom_read16(memory)), 1, 1344)?
+        return assertions::equal(u32.from(backup::eeprom_block_base(1024, 14)), 0, 1345)
+    }
+
+    fn invalid(memory: write memory::State) -> Result<void, u32> {
+        backup::eeprom_write_bit(memory, 0)
+        backup::eeprom_try_execute(memory)
+        assertions::equal(u32.from(memory.eeprom_command.length()), 1, 1346)?
+        backup::eeprom_execute(memory, false)
+        for index in 0..7 {
+            index;
+            backup::eeprom_write_bit(memory, 0)
+        }
+        backup::eeprom_execute(memory, false)
+        assertions::equal(u32.from(memory.eeprom_command.length()), 8, 1347)?
+        backup::eeprom_clear_command(memory)
+        backup::eeprom_write_bit(memory, 1)
+        backup::eeprom_write_bit(memory, 1)
+        for index in 0..7 {
+            index;
+            backup::eeprom_write_bit(memory, 0)
+        }
+        backup::eeprom_execute(memory, false)
+        return assertions::equal(u32.from(memory.eeprom_command.length()), 9, 1348)
+    }
+}

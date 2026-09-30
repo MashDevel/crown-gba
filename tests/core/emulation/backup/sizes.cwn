@@ -24,7 +24,8 @@ module backup_size_tests {
         }
         eeprom_image(memory, 512, 6)?
         eeprom_image(memory, 8192, 14)?
-        return read_kinds(memory)
+        read_kinds(memory)?
+        return flash_edges(memory)
     }
 
     fn eeprom_image(memory: write memory::State, size: usize, address_bits: usize) -> Result<void, u32> {

@@ -1,0 +1,31 @@
+fn test_bios_copy_edges(emulator: write emulator::State) -> u32 {
+    return match copy_tests::run(emulator) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module copy_tests {
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        let sources: [u32; 5] = [0x02000000, 0x03000000, 0x05000000, 0x08000000, 0x10000000]
+        let expected: [u32; 5] = [1, 1, 0, 1, 0]
+        for index in 0..5 {
+            let plan = bios::CopyPlan {
+                source: sources[index], destination: 0x02003000, count: 1, unit: 2, word: false, fill: false
+            }
+            assertions::equal(bits::bool_u32(bios::copy_source_valid(emulator, plan)), expected[index], 1440)?
+        }
+        memory::write16(emulator.memory, 0x02002000, 31)
+        emulator.cpu.registers[0] = 0x02002000
+        emulator.cpu.registers[1] = memory::PALETTE_START
+        emulator.cpu.registers[2] = 2
+        bios::handle_swi(emulator, bios::call::CPU_SET)
+        assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, memory::PALETTE_START)), 31, 1441)?
+        emulator.cpu.registers[2] = 0x1000002
+        bios::handle_swi(emulator, bios::call::CPU_SET)
+        return assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, memory::PALETTE_START + 2)), 31, 1442)
+    }
+}

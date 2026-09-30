@@ -63,6 +63,10 @@ fn test_host_path_encoding() -> u32 {
 }
 
 fn test_empty_save_file(path: read TextView, emulator: write emulator::State) -> u32 {
+    let errors = test_file_errors(path, emulator.memory)
+    if errors != 0 {
+        return errors
+    }
     let truncated = truncate_backup_file(path)
     if truncated != 0 {
         return truncated
@@ -123,6 +127,10 @@ fn eeprom_payload(memory: write memory::State) -> void {
 }
 
 fn test_eeprom(emulator: write emulator::State) -> u32 {
+    let boundaries = test_eeprom_boundaries()
+    if boundaries != 0 {
+        return boundaries
+    }
     emulator.memory.save_kind = backup::Kind::Eeprom()
     backup::clear_vector_to(emulator.memory.backup, 255)
     backup::eeprom_write_bit(emulator.memory, 1)

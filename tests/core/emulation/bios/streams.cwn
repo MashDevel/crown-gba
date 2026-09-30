@@ -1,0 +1,91 @@
+fn test_bios_streams(emulator: write emulator::State) -> u32 {
+    return match stream_tests::run(emulator) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module stream_tests {
+    const SOURCE: u32 = 0x02002000
+    const OUTPUT: u32 = 0x02003000
+
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        lz_overlap(emulator)?
+        literals(emulator)?
+        differences(emulator)?
+        unpack(emulator)?
+        packed_tree(emulator)?
+        return empty_streams(emulator)
+    }
+
+    fn prepare(emulator: write emulator::State, header: u32) -> void {
+        emulator.cpu.registers[0] = SOURCE
+        emulator.cpu.registers[1] = OUTPUT
+        memory::write32(emulator.memory, SOURCE, header)
+        memory::write32(emulator.memory, OUTPUT, 0xcccccccc)
+        memory::write32(emulator.memory, OUTPUT + 4, 0xcccccccc)
+    }
+
+    fn lz_overlap(emulator: write emulator::State) -> Result<void, u32> {
+        let lengths: [u32; 3] = [4, 6, 7]
+        let expected: [u32; 3] = [0xcccccccc, 0xcccc4141, 0xcc414141]
+        for index in 0..3 {
+            prepare(emulator, (lengths[index] << 8) | 0x10)
+            memory::write8(emulator.memory, SOURCE + 4, 0x40)
+            memory::write8(emulator.memory, SOURCE + 5, 0x41)
+            memory::write8(emulator.memory, SOURCE + 6, 0x20)
+            memory::write8(emulator.memory, SOURCE + 7, 0)
+            memory::write8(emulator.memory, SOURCE + 8, 0x41)
+            bios::handle_swi(emulator, bios::call::LZ77_RAM)
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT), 0x41414141, 1220)?
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT + 4), expected[index], 1221)?
+        }
+        return Ok(())
+    }
+
+    fn literals(emulator: write emulator::State) -> Result<void, u32> {
+        let lengths: [u32; 2] = [2, 3]
+        let expected: [u32; 2] = [0xcccc4241, 0xcc434241]
+        for index in 0..2 {
+            prepare(emulator, lengths[index] << 8 | 0x30)
+            memory::write32(emulator.memory, SOURCE + 4, 0x43424102)
+            bios::handle_swi(emulator, bios::call::RUN_LENGTH_RAM)
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT), expected[index], 1222)?
+        }
+        return Ok(())
+    }
+
+    fn differences(emulator: write emulator::State) -> Result<void, u32> {
+        prepare(emulator, 0x581)
+        memory::write32(emulator.memory, SOURCE + 4, 0x0002ffff)
+        bios::handle_swi(emulator, bios::call::DIFF16)
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT), 0x0001ffff, 1223)?
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT + 4), 0xcccccccc, 1224)?
+        prepare(emulator, 0x380)
+        memory::write32(emulator.memory, SOURCE + 4, 0x0102ff)
+        emulator.cpu.registers[1] = 0x06000000
+        bios::handle_swi(emulator, bios::call::DIFF8_VRAM)
+        assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, 0x06000000)), 0x01ff, 1225)?
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, 0x06000002)), 2, 1226)?
+        return Ok(())
+    }
+
+    fn empty_streams(emulator: write emulator::State) -> Result<void, u32> {
+        let headers: [u32; 5] = [0x10, 0x30, 0x80, 0x81, 0x82]
+        let calls: [u32; 5] = [bios::call::LZ77_VRAM, bios::call::RUN_LENGTH_VRAM, bios::call::DIFF8_RAM, bios::call::DIFF16, bios::call::DIFF16]
+        for index in 0..5 {
+            prepare(emulator, headers[index])
+            bios::handle_swi(emulator, calls[index])
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT), 0xcccccccc, 1227)?
+        }
+        var empty = bios::Stream {
+            source: SOURCE, destination: OUTPUT, remaining: 0, vram: false
+        }
+        bios::stream_write(emulator, empty, 0)
+        assertions::equal(empty.destination, OUTPUT, 1228)?
+        return Ok(())
+    }
+}

@@ -1,0 +1,76 @@
+fn test_bitmap_boundaries() -> u32 {
+    return match bitmap_tests::run() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module bitmap_tests {
+    fn run() -> Result<void, u32> {
+        bounds()?
+        var memory = memory::new()
+        memory::io_store16(memory, video::AFFINE_2, 256)
+        memory::write16(memory, memory::PALETTE_START + 2, 31)
+        memory.vram[0] = 1
+        memory.vram[video::BITMAP_PAGE_BYTES] = 2
+        memory::write16(memory, memory::PALETTE_START + 4, 992)
+        let indexed = video::BitmapPoint {
+            line: 0, x: 0, mode: 4, control: 0
+        }
+        assertions::equal(video::bitmap_pixel(memory, indexed).color, 0xff0000, 1300)?
+        var page = move indexed
+        page.control = video::FRAME_SELECT
+        assertions::equal(video::bitmap_pixel(memory, page).color, 0x00ff00, 1301)?
+        assertions::equal(bits::bool_u32(video::bitmap_pixel(memory, video::BitmapPoint {
+                        line: 0, x: 1, mode: 4, control: 0
+                    }).visible), 0, 1302)?
+        small(memory)?
+        return mosaic(memory)
+    }
+
+    fn bounds() -> Result<void, u32> {
+        let x: [i32; 9] = [-1, 0, 159, 160, 0, 239, 240, 0, 0]
+        let y: [i32; 9] = [0, -1, 127, 0, 128, 159, 0, 160, 0]
+        let modes: [u16; 9] = [3, 3, 5, 5, 5, 4, 3, 4, 0]
+        let expected: [u32; 9] = [0, 0, 1, 0, 0, 1, 0, 0, 1]
+        for index in 0..9 {
+            let sample = video::BitmapSample {
+                x: x[index], y: y[index], mode: modes[index], control: 0
+            }
+            assertions::equal(bits::bool_u32(video::bitmap_in_bounds(sample)), expected[index], 1303)?
+        }
+        return Ok(())
+    }
+
+    fn small(memory: write memory::State) -> Result<void, u32> {
+        memory::write16(memory, memory::VRAM_START, 31)
+        memory::write16(memory, memory::VRAM_START + u32.from(video::BITMAP_PAGE_BYTES), 992)
+        let point = video::BitmapPoint {
+            line: 0, x: 0, mode: 5, control: 0
+        }
+        assertions::equal(video::bitmap_pixel(memory, point).color, 0xff0000, 1304)?
+        var page = move point
+        page.control = video::FRAME_SELECT
+        assertions::equal(video::bitmap_pixel(memory, page).color, 0x00ff00, 1305)?
+        page.x = 160
+        return assertions::equal(bits::bool_u32(video::bitmap_pixel(memory, page).visible), 0, 1306)
+    }
+
+    fn mosaic(memory: write memory::State) -> Result<void, u32> {
+        memory::io_store16(memory, video::BACKGROUND_CONTROL + 4, video::BACKGROUND_MOSAIC)
+        memory::io_store16(memory, video::MOSAIC, 0x23)
+        memory::io_store16(memory, video::AFFINE_2 + 2, 256)
+        memory::io_store16(memory, video::AFFINE_2 + 4, 256)
+        memory::io_store16(memory, video::AFFINE_2 + 6, 512)
+        memory.affine_references[0] = 512
+        memory.affine_references[1] = 1024
+        let sample = video::bitmap_sample(memory, video::BitmapPoint {
+                line: 2, x: 7, mode: 3, control: 0
+            })
+        assertions::equal(u32.from(sample.x), 4, 1307)?
+        return assertions::equal(u32.from(sample.y), 4, 1308)
+    }
+}
