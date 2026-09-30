@@ -1,0 +1,6 @@
+[package]
+name = "gba_windows_gui_tests"
+source = "."
+
+[target.windows]
+subsystem = "windows"

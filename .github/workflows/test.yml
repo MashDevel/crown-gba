@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: MashDevel/crown-lang
-          ref: b7c3e3f32f7ccfe6c58a61b263964e1c1c57c63f
+          ref: 7b2bb31786ff1c0fd6c3e5fc96c06617d9df02c7
           path: lang
           persist-credentials: false
       - name: Fetch Crown on macOS and Linux
@@ -67,9 +67,15 @@ jobs:
           $compiler = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/fetch.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Crown download failed' }
           [IO.Path]::GetDirectoryName($compiler) >> $env:GITHUB_PATH
-      - name: Check pinned Crown compiler
+      - name: Build pinned Crown compiler
         id: bootstrap
-        run: crown --version
+        run: |
+          mkdir -p target/toolchain
+          extension=""
+          if [ "$RUNNER_OS" = Windows ]; then extension=".exe"; fi
+          crown build ../lang/components/compiler -o "target/toolchain/crown$extension"
+          "target/toolchain/crown$extension" --version
+          echo "$PWD/target/toolchain" >> "$GITHUB_PATH"
       - name: Check formatting
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         run: crown fmt src tests --check
@@ -78,7 +84,7 @@ jobs:
         run: |
           status=0
           projects=(. tests tests/core tests/validation)
-          if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows); fi
+          if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows tests/windows_gui); fi
           for project in "${projects[@]}"; do
             name=${project//\//-}
             crown lint "$project" --output "target/ci/metrics-$name.json" || status=1

@@ -18,6 +18,8 @@ module windows_tests {
         platform::poll_window(window)
         window_events(window)?
         presentation(window)?
+        repaint(window)?
+        audio_recovery()?
         audio_output()?
         let gamepad = platform::open_gamepad()?
         platform::poll_gamepad(gamepad, window)

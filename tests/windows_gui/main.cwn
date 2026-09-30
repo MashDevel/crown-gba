@@ -1,0 +1,19 @@
+fn main() -> u32 {
+    var names = Vec<Text>.new()
+    names.push("GetConsoleWindow")
+    unsafe {
+        let library = match std::dylib::open("kernel32.dll", names) {
+            Ok(value) => move value,
+            Err(error) => {
+                error;
+                return 1
+            }
+        }
+        let console = RawPtr<fn() -> usize>.cast(std::dylib::slot(library, 0)).read()
+        return if console() == 0 {
+            0
+        } else {
+            2
+        }
+    }
+}

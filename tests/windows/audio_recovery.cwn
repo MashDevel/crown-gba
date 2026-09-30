@@ -1,0 +1,58 @@
+module windows_tests {
+    fn audio_recovery() -> Result<void, u32> {
+        var device: [u64; 3] = [0, 0, 0]
+        unsafe {
+            var audio = mock_audio(device.as_raw())?
+            if platform::poll_audio(audio, 0) != 0 || device[0] != 1 || audio.started {
+                return Err(40)
+            }
+            platform::poll_audio(audio, 0)
+            if device[0] != 1 {
+                return Err(41)
+            }
+            recovery_priming(audio, device)?
+            recovery_failures(audio, device)?
+        }
+        return Ok(())
+    }
+
+    fn recovery_failures(audio: write platform::Audio, device: write[u64; 3]) -> Result<void, u32> {
+        unsafe {
+            for index in 0..4 {
+                audio.headers[index * 6 + 3] = 2
+            }
+            if platform::poll_audio(audio, 0) != 0 || device[0] != 2 || audio.started {
+                return Err(46)
+            }
+            audio.started = true
+            device[2] = 1
+            if platform::poll_audio(audio, 0) != 91 {
+                return Err(47)
+            }
+        }
+        return Ok(())
+    }
+
+    fn recovery_priming(audio: write platform::Audio, device: [u64; 3]) -> Result<void, u32> {
+        unsafe {
+            var samples = Vec<i32>.new()
+            for index in 0..2048 {
+                index;
+                samples.push(0)
+            }
+            if platform::submit_audio(audio, samples, 48000) == false {
+                return Err(42)
+            }
+            if audio.started || device[1] != 0 {
+                return Err(43)
+            }
+            if platform::submit_audio(audio, samples, 48000) == false {
+                return Err(44)
+            }
+            if audio.started == false || device[1] != 1 {
+                return Err(45)
+            }
+        }
+        return Ok(())
+    }
+}

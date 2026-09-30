@@ -9,6 +9,9 @@ libraries = ["platform", "integrations"]
 frameworks = ["AppKit", "Foundation", "Metal", "QuartzCore", "AVFAudio"]
 libraries = ["objc"]
 
+[target.windows]
+subsystem = "windows"
+
 [quality]
 max_file_lines = 300
 max_function_lines = 60

@@ -1,0 +1,70 @@
+module windows_tests {
+    fn mock_pause(device: usize) -> u32 {
+        unsafe {
+            let state = RawPtr<u64>.from_address(device)
+            state.write(state.read() + 1)
+            return u32.from(state.offset(2).read())
+        }
+    }
+
+    fn mock_restart(device: usize) -> u32 {
+        unsafe {
+            let state = RawPtr<u64>.from_address(device).offset(1)
+            state.write(state.read() + 1)
+        }
+        return 0
+    }
+
+    fn mock_close(device: usize) -> u32 {
+        device;
+        return 0
+    }
+
+    fn mock_unprepare(device: usize, header: RawPtr<u64>, size: u32) -> u32 {
+        device;
+        size;
+        unsafe {
+            header.offset(3).write(0)
+        }
+        return 0
+    }
+
+    fn mock_submit(device: usize, header: RawPtr<u64>, size: u32) -> u32 {
+        device;
+        if size != 48 {
+            return 1
+        }
+        unsafe {
+            header.offset(3).write(18)
+        }
+        return 0
+    }
+
+    fn mock_audio(device: RawPtr<u64>) -> Result<platform::Audio, u32> {
+        let library = win::library("winmm.dll", "waveOutOpen|waveOutPrepareHeader|waveOutUnprepareHeader|waveOutWrite|waveOutReset|waveOutClose|waveOutPause|waveOutRestart")?
+        unsafe {
+            let unary: [fn(read usize) -> u32; 4] = [mock_close, mock_close, mock_pause, mock_restart]
+            let headers: [fn(read usize, read RawPtr<u64>, read u32) -> u32; 2] = [mock_unprepare, mock_submit]
+            for index in 0..4 {
+                std::dylib::slot(library, index + 4).write(RawPtr<RawPtr<u8>>.cast(unary.as_raw()).offset(index).read())
+            }
+            for index in 0..2 {
+                std::dylib::slot(library, index + 2).write(RawPtr<RawPtr<u8>>.cast(headers.as_raw()).offset(index).read())
+            }
+            var audio = platform::Audio {
+                library: move library, device: usize.from(win::address(RawPtr<u8>.cast(device))),
+                headers: Vec<u64>.new(), samples: Vec<i16>.new(), ring: app::sample_ring(), queued: 0,
+                started: true, silent: app::new_audio_queue(app::OUTPUT_RATE)
+            }
+            for index in 0..24 {
+                index;
+                audio.headers.push(0)
+            }
+            for index in 0..8192 {
+                index;
+                audio.samples.push(0)
+            }
+            return Ok(move audio)
+        }
+    }
+}

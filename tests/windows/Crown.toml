@@ -1,3 +1,3 @@
 [package]
 name = "gba_windows_tests"
-sources = ["../../src/platform/windows", "../../src/host", "../../src/frontend/playback/audio_buffer.cwn", "../../src/frontend/playback/output_buffer.cwn", "../../src/frontend/playback/resample.cwn", "../../src/frontend/playback/resample_filter.cwn", "../../src/frontend/playback/linux_input.cwn", "../../src/frontend/playback/windows_input.cwn", "../../src/emulation/ppu/layout.cwn", "."]
+sources = ["../../src/frontend/playback/schedule.cwn", "../../src/platform/windows", "../../src/host", "../../src/frontend/playback/audio_buffer.cwn", "../../src/frontend/playback/output_buffer.cwn", "../../src/frontend/playback/resample.cwn", "../../src/frontend/playback/resample_filter.cwn", "../../src/frontend/playback/linux_input.cwn", "../../src/frontend/playback/windows_input.cwn", "../../src/emulation/ppu/layout.cwn", "."]

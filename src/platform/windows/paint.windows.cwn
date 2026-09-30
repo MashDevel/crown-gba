@@ -1,0 +1,127 @@
+module platform {
+    struct WindowPaint {
+        user: std::dylib::Library
+        graphics: std::dylib::Library
+        pixels: Vec<u32>
+        buffer: Option<FrameBuffer>
+        width: i32
+        height: i32
+        error: u32
+    }
+
+    fn window_paint() -> Result<Vec<WindowPaint>, u32> {
+        let user = window_user_library()?
+        let graphics = window_graphics_library()?
+        var pixels = Vec<u32>.new()
+        for index in 0..38400 {
+            index;
+            pixels.push(0)
+        }
+        var states = Vec<WindowPaint>.new()
+        states.push(WindowPaint {
+                user: move user, graphics: move graphics, pixels: move pixels, buffer: None(), width: 0, height: 0, error: 0
+            })
+        return Ok(move states)
+    }
+
+    fn window_procedure(handle: usize, message: u32, word: usize, value: isize) -> isize {
+        let user = match win::library("user32.dll", "GetWindowLongPtrW|SetWindowLongPtrW|DefWindowProcW") {
+            Ok(library) => move library,
+            Err(code) => {
+                code;
+                return 0
+            }
+        }
+        unsafe {
+            let get = RawPtr<fn(read usize, read i32) -> usize>.cast(std::dylib::slot(user, 0)).read()
+            let set = RawPtr<fn(read usize, read i32, read usize) -> usize>.cast(std::dylib::slot(user, 1)).read()
+            let fallback = RawPtr<fn(read usize, read u32, read usize, read isize) -> isize>.cast(std::dylib::slot(user, 2)).read()
+            if message == 129 {
+                let context = RawPtr<usize>.from_address(usize.from(value)).read()
+                set(handle, -21, context)
+            }
+            let context = get(handle, -21)
+            if context != 0 && paint_message(context, handle, message) {
+                return 0
+            }
+            if message == 20 {
+                return 1
+            }
+            if message == 130 {
+                set(handle, -21, 0)
+            }
+            return fallback(handle, message, word, value)
+        }
+    }
+
+    fn paint_message(context: usize, handle: usize, message: u32) -> bool {
+        if message != 15 {
+            return false
+        }
+        unsafe {
+            let functions: [fn(write WindowPaint, read usize) -> void; 1] = [paint_window]
+            let paint = RawPtr<fn(read RawPtr<WindowPaint>, read usize) -> void>.cast(functions.as_raw()).read()
+            paint(RawPtr<WindowPaint>.from_address(context), handle)
+        }
+        return true
+    }
+
+    fn paint_window(state: write WindowPaint, handle: usize) -> void {
+        unsafe {
+            var paint: [u64; 9] = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+            let begin = RawPtr<fn(read usize, read RawPtr<u64>) -> usize>.cast(std::dylib::slot(state.user, 20)).read()
+            let end = RawPtr<fn(read usize, read RawPtr<u64>) -> i32>.cast(std::dylib::slot(state.user, 21)).read()
+            let dc = begin(handle, paint.as_raw())
+            if dc == 0 {
+                state.error = 84;
+                return
+            }
+            let result = paint_complete_frame(state, handle, dc)
+            end(handle, paint.as_raw())
+            match result {
+                Ok(value) => {
+                    value;
+                }
+                Err(code) => {
+                    state.error = code
+                }
+            }
+        }
+    }
+
+    fn paint_complete_frame(state: write WindowPaint, handle: usize, dc: usize) -> Result<void, u32> {
+        var rect: [i32; 4] = [0, 0, 0, 0]
+        unsafe {
+            let client = RawPtr<fn(read usize, read RawPtr<i32>) -> i32>.cast(std::dylib::slot(state.user, 11)).read()
+            if client(handle, rect.as_raw()) == 0 {
+                return Err(83)
+            }
+        }
+        if rect[2] <= 0 || rect[3] <= 0 {
+            return Ok(())
+        }
+        if rect[2] != state.width || rect[3] != state.height {
+            state.buffer = Some(frame_buffer(state.graphics, dc, rect)?)
+            state.width = rect[2]
+            state.height = rect[3]
+        }
+        var status: u32 = 0
+        match read state.buffer {
+            Some(buffer) => {
+                unsafe {
+                    status = draw_frame(state, buffer.dc, rect, state.pixels)
+                }
+                if status == 0 {
+                    status = copy_frame_buffer(state.graphics, buffer, dc, rect)
+                }
+            }
+            None => {
+                return Err(84)
+            }
+        }
+        if status != 0 {
+            return Err(status)
+        }
+        return Ok(())
+    }
+}

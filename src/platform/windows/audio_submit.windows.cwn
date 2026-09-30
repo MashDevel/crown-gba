@@ -29,6 +29,20 @@ module platform {
         }
     }
 
+    fn recover_audio(audio: write Audio) -> bool {
+        unsafe {
+            if audio.started == false || audio.queued != 0 {
+                return true
+            }
+            let pause = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(audio.library, 6)).read()
+            if pause(audio.device) != 0 {
+                return false
+            }
+            audio.started = false
+            return true
+        }
+    }
+
     fn start_audio(audio: write Audio) -> bool {
         unsafe {
             if audio.started || audio.queued < 2048 {

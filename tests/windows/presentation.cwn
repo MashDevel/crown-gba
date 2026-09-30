@@ -1,5 +1,5 @@
 module windows_tests {
-    fn minimize_restore(window: platform::Window, pixels: Vec<u32>) -> Result<void, u32> {
+    fn minimize_restore(window: write platform::Window, pixels: Vec<u32>) -> Result<void, u32> {
         unsafe {
             let show = RawPtr<fn(read usize, read i32) -> i32>.cast(std::dylib::slot(window.user, 14)).read()
             show(window.handle, 6)
@@ -14,7 +14,7 @@ module windows_tests {
         return Ok(())
     }
 
-    fn presentation(window: platform::Window) -> Result<void, u32> {
+    fn presentation(window: write platform::Window) -> Result<void, u32> {
         if platform::present_frame(window, Vec<u32>.new()) != 86 {
             return Err(10)
         }
