@@ -1,0 +1,65 @@
+fn main() -> u32 {
+    let result = windows_tests::run()
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        },
+        Err(code) => code
+    }
+}
+
+module windows_tests {
+    fn run() -> Result<void, u32> {
+        var window = platform::open_window()?
+        if platform::window_running(window) == false {
+            return Err(1)
+        }
+        platform::poll_window(window)
+        window_events(window)?
+        presentation(window)?
+        audio_output()?
+        let gamepad = platform::open_gamepad()?
+        platform::poll_gamepad(gamepad, window)
+        close_window(window)?
+        return Ok(())
+    }
+
+    fn window_events(window: write platform::Window) -> Result<void, u32> {
+        platform::window_message(window, 256, 90)
+        unsafe {
+            if window.keyboard != 1 {
+                return Err(2)
+            }
+        }
+        platform::window_message(window, 257, 90)
+        unsafe {
+            if window.keyboard != 0 {
+                return Err(3)
+            }
+        }
+        platform::window_message(window, 256, 27)
+        if platform::window_running(window) {
+            return Err(4)
+        }
+        unsafe {
+            window.running = true
+        }
+        return Ok(())
+    }
+
+    fn close_window(window: write platform::Window) -> Result<void, u32> {
+        let user = win::library("user32.dll", "PostMessageW")?
+        unsafe {
+            let post = RawPtr<fn(read usize, read u32, read usize, read isize) -> i32>.cast(std::dylib::slot(user, 0)).read()
+            if post(window.handle, 16, 0, 0) == 0 {
+                return Err(5)
+            }
+        }
+        platform::poll_window(window)
+        if platform::window_running(window) {
+            return Err(6)
+        }
+        return Ok(())
+    }
+}

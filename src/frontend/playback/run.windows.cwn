@@ -1,0 +1,52 @@
+module app {
+    fn run_native_frontend(emulator: take emulator::State) -> Option<Result> {
+        var machine = move emulator
+        let result = windows_frontend::playback(machine)
+        let code = match result {
+            Ok(value) => {
+                value;
+                0
+            },
+            Err(error) => error
+        }
+        return Some(Result {
+                emulator: move machine, code: code
+            })
+    }
+
+}
+
+module windows_frontend {
+    fn playback(machine: write emulator::State) -> Result<void, u32> {
+        var window = platform::open_window()?
+        var audio = platform::open_audio()?
+        let gamepad = platform::open_gamepad()?
+        while platform::window_running(window) {
+            let keyboard = platform::poll_window(window)
+            if platform::window_running(window) == false {
+                break
+            }
+            let pressed = keyboard | platform::poll_gamepad(gamepad, window)
+            keypad::set_pressed(machine.memory, u16.from(pressed))
+            platform::poll_audio(audio, 0)
+            if platform::audio_needs_frames(audio) == false {
+                platform::poll_audio(audio, 1)
+                continue
+            }
+            let result = emulator::run_frame_with_video(machine, true)
+            if result != 0 {
+                return Err(result)
+            }
+            let rate = u32.from(video::CLOCK_HZ / audio::sample_cycles(machine.audio))
+            if platform::submit_audio(audio, machine.audio.samples, rate) == false {
+                return Err(93)
+            }
+            audio::clear_samples(machine.audio)
+            let presented = platform::present_frame(window, machine.ppu.framebuffer)
+            if presented != 0 {
+                return Err(presented)
+            }
+        }
+        return Ok(())
+    }
+}

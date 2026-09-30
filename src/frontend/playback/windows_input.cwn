@@ -1,0 +1,47 @@
+module app {
+    fn windows_key_mask(key: u64) -> u32 {
+        let keys: [u64; 10] = [90, 88, 8, 13, 39, 37, 38, 40, 83, 65]
+        for index in 0..10 {
+            if keys[index] == key {
+                return u32.from(1) << u32.from(index)
+            }
+        }
+        return 0
+    }
+
+    fn windows_gamepad_keys(buttons: u16, horizontal: i16, vertical: i16) -> u32 {
+        let masks: [u16; 10] = [4096, 8192, 32, 16, 8, 4, 1, 2, 512, 256]
+        var pressed: u32 = 0
+        for index in 0..10 {
+            if buttons & masks[index] != 0 {
+                pressed = pressed |(u32.from(1) << u32.from(index))
+            }
+        }
+        if horizontal >= 16384 {
+            pressed = pressed | 16
+        }
+        if horizontal <= -16384 {
+            pressed = pressed | 32
+        }
+        if vertical >= 16384 {
+            pressed = pressed | 64
+        }
+        if vertical <= -16384 {
+            pressed = pressed | 128
+        }
+        return pressed
+    }
+
+    fn windows_image_dimensions(width: u32, height: u32) -> [u32; 2] {
+        if width == 0 || height == 0 {
+            return [0, 0]
+        }
+        if width >= 240 && height >= 160 {
+            return image_dimensions(width, height)
+        }
+        if u64.from(width) * 2 <= u64.from(height) * 3 {
+            return [width, width * 2 / 3]
+        }
+        return [height * 3 / 2, height]
+    }
+}

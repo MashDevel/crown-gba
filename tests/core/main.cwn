@@ -202,6 +202,14 @@ fn run_dma_tests(emulator: write emulator::State) -> u32 {
 }
 
 fn run_loaded_tests(arguments: read Arguments, emulator: write emulator::State) -> u32 {
+    let windows = test_windows_frontend()
+    if windows != 0 {
+        return windows
+    }
+    let paths = test_save_paths()
+    if paths != 0 {
+        return paths
+    }
     let integrity = test_audio_integrity(emulator)
     if integrity != 0 {
         return integrity

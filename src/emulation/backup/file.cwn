@@ -4,7 +4,7 @@ module backup {
         var extension = path.length()
         var index: usize = 0
         while index < path.length() {
-            if path[index] == 47 {
+            if host::path_separator(path[index]) {
                 extension = path.length()
             }
             if path[index] == 46 {

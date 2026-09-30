@@ -1,0 +1,39 @@
+module host {
+    extern "c" {
+        fn sin(value: f64) -> f64 = "sin"
+        fn cos(value: f64) -> f64 = "cos"
+        fn atan(value: f64) -> f64 = "atan"
+        fn atan2(y: f64, x: f64) -> f64 = "atan2"
+        fn round(value: f64) -> f64 = "round"
+    }
+
+    fn native_sin(value: f64) -> f64 {
+        unsafe {
+            return sin(value)
+        }
+    }
+
+    fn native_cos(value: f64) -> f64 {
+        unsafe {
+            return cos(value)
+        }
+    }
+
+    fn native_atan(value: f64) -> f64 {
+        unsafe {
+            return atan(value)
+        }
+    }
+
+    fn native_atan2(y: f64, x: f64) -> f64 {
+        unsafe {
+            return atan2(y, x)
+        }
+    }
+
+    fn native_round(value: f64) -> f64 {
+        unsafe {
+            return round(value)
+        }
+    }
+}

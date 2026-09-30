@@ -1,0 +1,32 @@
+module windows_tests {
+    fn presentation(window: platform::Window) -> Result<void, u32> {
+        if platform::present_frame(window, Vec<u32>.new()) != 86 {
+            return Err(10)
+        }
+        var pixels = Vec<u32>.new()
+        for index in 0..38400 {
+            index;
+            pixels.push(16711680)
+        }
+        let result = platform::present_frame(window, pixels)
+        if result != 0 {
+            return Err(result)
+        }
+        let graphics = win::library("gdi32.dll", "GetPixel")?
+        unsafe {
+            let acquire = RawPtr<fn(read usize) -> usize>.cast(std::dylib::slot(window.user, 12)).read()
+            let release = RawPtr<fn(read usize, read usize) -> i32>.cast(std::dylib::slot(window.user, 13)).read()
+            let pixel = RawPtr<fn(read usize, read i32, read i32) -> u32>.cast(std::dylib::slot(graphics, 0)).read()
+            let dc = acquire(window.handle)
+            if dc == 0 {
+                return Err(11)
+            }
+            let color = pixel(dc, 360, 240)
+            release(window.handle, dc)
+            if color != 255 {
+                return Err(12)
+            }
+        }
+        return Ok(())
+    }
+}

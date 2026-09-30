@@ -30,7 +30,7 @@ module gba_tests {
         var context = Context {
             compiler: arguments[1].clone(), root: arguments[2].clone(), output: arguments[3].clone(),
             filter: arguments[4].clone(), coverage: arguments[5].clone(),
-            binary: toolchain::path_join(arguments[2].clone(), "target/debug/gba_crown"),
+            binary: project_binary(arguments[2].clone(), "gba_crown"),
             rom: toolchain::path_join(arguments[2].clone(), "tests/fixtures/deterministic_game.gba"), checks: 0
         }
         toolchain::make_directory(context.output)?

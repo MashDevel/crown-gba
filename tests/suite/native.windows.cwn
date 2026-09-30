@@ -1,0 +1,10 @@
+module gba_tests {
+    fn run_native(context: write Context) -> Result<void, Text> {
+        if selected(context, "native_windows") == false {
+            return Ok(())
+        }
+        let root = toolchain::path_join(context.root, "tests/windows")
+        build_project(context, root, "windows")?
+        return check_program(context, "native_windows", project_binary(root, "gba_windows_tests"), 0, "")
+    }
+}

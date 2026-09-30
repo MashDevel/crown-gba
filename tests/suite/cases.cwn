@@ -37,7 +37,7 @@ module gba_tests {
     fn run_validation(context: write Context) -> Result<void, Text> {
         let root = toolchain::path_join(context.root, "tests/validation")
         build_project(context, root, "validation")?
-        let binary = toolchain::path_join(root, "target/debug/gba_validation")
+        let binary = project_binary(root, "gba_validation")
         check_program(context, "validation_cpu", binary.clone(), 0, "@cpu|cpu")?
         check_program(context, "validation_frames", binary, 0, "@rom|frames")?
         return Ok(())
@@ -46,7 +46,7 @@ module gba_tests {
     fn run_core(context: write Context) -> Result<void, Text> {
         let root = toolchain::path_join(context.root, "tests/core")
         build_project(context, root, "core")?
-        let binary = toolchain::path_join(root, "target/debug/gba_crown_core_tests")
+        let binary = project_binary(root, "gba_crown_core_tests")
         return check_program(context, "core_unit_tests", binary, 0, "@cpu|@save")
     }
 

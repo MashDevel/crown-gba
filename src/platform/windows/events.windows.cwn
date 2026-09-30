@@ -1,0 +1,48 @@
+module platform {
+    fn poll_window(window: write Window) -> u32 {
+        unsafe {
+            let peek = RawPtr<fn(read RawPtr<u64>, read usize, read u32, read u32, read u32) -> i32>.cast(std::dylib::slot(window.user, 6)).read()
+            let translate = RawPtr<fn(read RawPtr<u64>) -> i32>.cast(std::dylib::slot(window.user, 7)).read()
+            let dispatch = RawPtr<fn(read RawPtr<u64>) -> isize>.cast(std::dylib::slot(window.user, 8)).read()
+            var message: [u64; 6] = [0, 0, 0, 0, 0, 0]
+            for count in 0..128 {
+                count;
+                if peek(message.as_raw(), 0, 0, 0, 1) == 0 {
+                    break
+                }
+                if message[0] == u64.from(window.handle) {
+                    window_message(window, u32.from(message[1]), message[2])
+                }
+                if message[1] == 18 {
+                    window.running = false
+                }
+                translate(message.as_raw())
+                dispatch(message.as_raw())
+            }
+            let valid = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(window.user, 9)).read()
+            let foreground = RawPtr<fn() -> usize>.cast(std::dylib::slot(window.user, 10)).read()
+            if valid(window.handle) == 0 {
+                window.running = false;
+                window.handle = 0
+            }
+            if foreground() != window.handle {
+                window.keyboard = 0
+            }
+            return window.keyboard
+        }
+    }
+
+    fn window_message(window: write Window, message: u32, key: u64) -> void {
+        unsafe {
+            if message == 256 {
+                if key == 27 {
+                    window.running = false
+                }
+                window.keyboard = window.keyboard | app::windows_key_mask(key)
+            }
+            if message == 257 {
+                window.keyboard = window.keyboard & ~app::windows_key_mask(key)
+            }
+        }
+    }
+}

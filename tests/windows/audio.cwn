@@ -1,0 +1,27 @@
+module windows_tests {
+    fn audio_output() -> Result<void, u32> {
+        var audio = platform::open_audio()?
+        var samples = Vec<i32>.new()
+        for index in 0..8192 {
+            index;
+            samples.push(0)
+        }
+        if platform::submit_audio(audio, samples, 0) {
+            return Err(20)
+        }
+        if platform::submit_audio(audio, samples, 48000) == false {
+            return Err(21)
+        }
+        if platform::audio_needs_frames(audio) {
+            return Err(22)
+        }
+        for attempt in 0..1000 {
+            attempt;
+            platform::poll_audio(audio, 1)
+            if platform::audio_needs_frames(audio) {
+                return Ok(())
+            }
+        }
+        return Err(23)
+    }
+}

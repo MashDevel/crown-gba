@@ -2,13 +2,23 @@ fn truncate_backup_file(path: read TextView) -> u32 {
     let created = backup::save_path(path)
     match move created {
         Ok(save_path) => {
-            let mode = "wb\0"
-            unsafe {
-                let file = std::io::raw_open(host::buffer_read_pointer(save_path), mode.as_raw())
-                if file == RawPtr<u8>.from_address(0) {
+            var bytes = Vec<u8>.new()
+            for index in 0..host::buffer_length(save_path) - 1 {
+                bytes.push(host::buffer_get(save_path, index))
+            }
+            let text = match std::text::from_bytes(bytes) {
+                Ok(value) => move value
+                Err(error) => {
+                    error;
                     return 401
                 }
-                if std::io::raw_close(file) != 0 {
+            }
+            match std::io::write_file(text, Vec<u8>.new()) {
+                Ok(value) => {
+                    value;
+                }
+                Err(error) => {
+                    error;
                     return 402
                 }
             }

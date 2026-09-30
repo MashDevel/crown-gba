@@ -22,10 +22,16 @@ jobs:
         include:
           - host: x86_64-linux
             runner: ubuntu-24.04
+          - host: arm64-linux
+            runner: ubuntu-24.04-arm
           - host: x86_64-macos
             runner: macos-15-intel
           - host: arm64-macos
             runner: macos-15
+          - host: x86_64-windows
+            runner: windows-2025
+          - host: arm64-windows
+            runner: windows-11-arm
     defaults:
       run:
         shell: bash
@@ -38,7 +44,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: MashDevel/crown-lang
-          ref: 3345dc0e998db6e4af0901190a24d9ce415721bb
+          ref: b7c3e3f32f7ccfe6c58a61b263964e1c1c57c63f
           path: lang
           persist-credentials: false
       - name: Bootstrap pinned Crown compiler
@@ -47,8 +53,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p target/ci
-          sh ../lang/bootstrap/fetch
-          ../lang/bootstrap/crown --version
+          if [ "$RUNNER_OS" = Windows ]; then
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/fetch.ps1
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/crown.ps1 --version
+          else
+            sh ../lang/bootstrap/fetch
+            ../lang/bootstrap/crown --version
+          fi
           echo "$GITHUB_WORKSPACE/lang/target/bootstrap" >> "$GITHUB_PATH"
       - name: Check formatting
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
@@ -57,7 +68,9 @@ jobs:
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         run: |
           status=0
-          for project in . tests tests/core tests/validation; do
+          projects=(. tests tests/core tests/validation)
+          if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows); fi
+          for project in "${projects[@]}"; do
             name=${project//\//-}
             crown lint "$project" --output "target/ci/metrics-$name.json" || status=1
           done

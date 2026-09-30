@@ -9,18 +9,6 @@ module host {
         fn make_temporary(path: RawPtr<u8>) -> i32 = "mkstemp"
         fn rename(source: RawPtr<u8>, destination: RawPtr<u8>) -> i32 = "rename"
         fn unlink(path: RawPtr<u8>) -> i32 = "unlink"
-        fn sin(value: f64) -> f64 = "sin"
-        fn cos(value: f64) -> f64 = "cos"
-        fn atan(value: f64) -> f64 = "atan"
-        fn atan2(y: f64, x: f64) -> f64 = "atan2"
-        fn round(value: f64) -> f64 = "round"
-    }
-
-    opaque resource Buffer {
-        data: Vec<u8>
-        length: usize
-        drop {
-        }
     }
 
     opaque resource File {
@@ -32,67 +20,6 @@ module host {
                 }
             }
         }
-    }
-
-    fn null_byte_pointer() -> RawPtr<u8> {
-        unsafe {
-            return RawPtr<u8>.from_address(0)
-        }
-    }
-
-    fn allocate_buffer(length: usize) -> Result<Buffer, u32> {
-        let data = std::bytes::filled(length, 0)
-        unsafe {
-            return Ok(Buffer {
-                    data: move data, length: length
-                })
-        }
-    }
-
-    fn buffer_length(buffer: Buffer) -> usize {
-        unsafe {
-            return buffer.length
-        }
-    }
-
-    fn buffer_get(buffer: Buffer, index: usize) -> u8 {
-        unsafe {
-            return buffer.data[index]
-        }
-    }
-
-    fn buffer_set(buffer: write Buffer, index: usize, value: u8) -> void {
-        unsafe {
-            buffer.data[index] = value
-        }
-        return
-    }
-
-    unsafe fn buffer_read_pointer(buffer: Buffer) -> RawPtr<u8> {
-        unsafe {
-            return buffer.data.as_raw()
-        }
-    }
-
-    unsafe fn buffer_write_pointer(buffer: write Buffer) -> RawPtr<u8> {
-        unsafe {
-            return buffer.data.as_raw()
-        }
-    }
-
-    fn buffer_is_path(buffer: Buffer) -> bool {
-        let length = buffer_length(buffer)
-        if length == 0 {
-            return false
-        }
-        var index: usize = 0
-        while index + 1 < length {
-            if buffer_get(buffer, index) == 0 {
-                return false
-            }
-            index = index + 1
-        }
-        return buffer_get(buffer, length - 1) == 0
     }
 
     fn read_host_file(file: File, buffer: write Buffer, length: usize) -> bool {
@@ -252,39 +179,10 @@ module host {
         }
     }
 
-    fn write_buffer_file(path: TextView, buffer: Buffer) -> Result<void, std::io::Error> {
-        unsafe {
-            return std::io::write_file(path, buffer.data)
-        }
-    }
+}
 
-    fn native_sin(value: f64) -> f64 {
-        unsafe {
-            return sin(value)
-        }
-    }
-
-    fn native_cos(value: f64) -> f64 {
-        unsafe {
-            return cos(value)
-        }
-    }
-
-    fn native_atan(value: f64) -> f64 {
-        unsafe {
-            return atan(value)
-        }
-    }
-
-    fn native_atan2(y: f64, x: f64) -> f64 {
-        unsafe {
-            return atan2(y, x)
-        }
-    }
-
-    fn native_round(value: f64) -> f64 {
-        unsafe {
-            return round(value)
-        }
+module host {
+    fn path_separator(value: u8) -> bool {
+        return value == 47
     }
 }

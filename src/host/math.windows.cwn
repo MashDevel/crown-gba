@@ -1,0 +1,52 @@
+module host {
+    extern "c" {
+        fn math_abort() -> void = "abort"
+    }
+
+    fn unary_math(name: Text, value: f64) -> f64 {
+        let library = match win::library("ucrtbase.dll", name) {
+            Ok(loaded) => move loaded
+            Err(code) => {
+                code;
+                unsafe {
+                    math_abort()
+                };
+                return 0.0
+            }
+        }
+        unsafe {
+            let call = RawPtr<fn(read f64) -> f64>.cast(std::dylib::slot(library, 0)).read()
+            return call(value)
+        }
+    }
+
+    fn native_sin(value: f64) -> f64 {
+        return unary_math("sin", value)
+    }
+    fn native_cos(value: f64) -> f64 {
+        return unary_math("cos", value)
+    }
+    fn native_atan(value: f64) -> f64 {
+        return unary_math("atan", value)
+    }
+    fn native_round(value: f64) -> f64 {
+        return unary_math("round", value)
+    }
+
+    fn native_atan2(y: f64, x: f64) -> f64 {
+        let library = match win::library("ucrtbase.dll", "atan2") {
+            Ok(loaded) => move loaded
+            Err(code) => {
+                code;
+                unsafe {
+                    math_abort()
+                };
+                return 0.0
+            }
+        }
+        unsafe {
+            let call = RawPtr<fn(read f64, read f64) -> f64>.cast(std::dylib::slot(library, 0)).read()
+            return call(y, x)
+        }
+    }
+}

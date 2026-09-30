@@ -1,0 +1,22 @@
+module platform {
+    fn open_gamepad() -> Result<std::dylib::Library, u32> {
+        return win::library("xinput1_4.dll", "XInputGetState")
+    }
+
+    fn poll_gamepad(gamepad: std::dylib::Library, window: Window) -> u32 {
+        unsafe {
+            let foreground = RawPtr<fn() -> usize>.cast(std::dylib::slot(window.user, 10)).read()
+            if foreground() != window.handle {
+                return 0
+            }
+            let read_state = RawPtr<fn(read u32, read RawPtr<u16>) -> u32>.cast(std::dylib::slot(gamepad, 0)).read()
+            var state: [u16; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+            for index in 0..4 {
+                if read_state(u32.from(index), state.as_raw()) == 0 {
+                    return app::windows_gamepad_keys(state[2], i16.from_bits(state[4]), i16.from_bits(state[5]))
+                }
+            }
+        }
+        return 0
+    }
+}

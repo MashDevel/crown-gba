@@ -1,0 +1,59 @@
+module platform {
+    fn submit_audio(audio: write Audio, samples: Vec<i32>, rate: u32) -> bool {
+        unsafe {
+            if app::ring_push(audio.ring, samples, rate) == false {
+                return false
+            }
+            if audio.device == 0 {
+                app::audio_queue_push(audio.silent, u32.from(app::ring_frames(audio.ring)))
+                while app::ring_frames(audio.ring) != 0 {
+                    app::ring_sample(audio.ring);
+                    app::ring_sample(audio.ring);
+                }
+                return true
+            }
+            return queue_audio_blocks(audio)
+        }
+    }
+
+    fn queue_audio_blocks(audio: write Audio) -> bool {
+        unsafe {
+            for index in 0..4 {
+                if audio.headers[index * 6 + 3] & 16 == 0 && app::ring_frames(audio.ring) >= 1024 {
+                    if submit_audio_block(audio, index) == false {
+                        return false
+                    }
+                }
+            }
+            return start_audio(audio)
+        }
+    }
+
+    fn start_audio(audio: write Audio) -> bool {
+        unsafe {
+            if audio.started || audio.queued < 2048 {
+                return true
+            }
+            let restart = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(audio.library, 7)).read()
+            if restart(audio.device) != 0 {
+                return false
+            }
+            audio.started = true
+        }
+        return true
+    }
+
+    fn submit_audio_block(audio: write Audio, index: usize) -> bool {
+        unsafe {
+            for sample in 0..2048 {
+                audio.samples[index * 2048 + sample] = i16.from(app::ring_sample(audio.ring) * 32767.0)
+            }
+            let submit = RawPtr<fn(read usize, read RawPtr<u64>, read u32) -> u32>.cast(std::dylib::slot(audio.library, 3)).read()
+            if submit(audio.device, audio.headers.as_raw().offset(index * 6), 48) != 0 {
+                return false
+            }
+            audio.queued = audio.queued + 1024
+        }
+        return true
+    }
+}

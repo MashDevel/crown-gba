@@ -1,0 +1,27 @@
+module win {
+    fn library(name: Text, names: Text) -> Result<std::dylib::Library, u32> {
+        let symbols = std::text::split(names, 124)
+        unsafe {
+            return match std::dylib::open(name, symbols) {
+                Ok(value) => Ok(move value)
+                Err(error) => {
+                    error;
+                    Err(80)
+                }
+            }
+        }
+    }
+
+    unsafe fn address(pointer: RawPtr<u8>) -> u64 {
+        unsafe {
+            let pointers = [pointer]
+            return RawPtr<u64>.cast(pointers.as_raw()).read()
+        }
+    }
+
+    fn null() -> RawPtr<u8> {
+        unsafe {
+            return RawPtr<u8>.from_address(0)
+        }
+    }
+}
