@@ -1,0 +1,99 @@
+module host {
+    extern "c" {
+        fn random_bytes(bytes: RawPtr<u8>, size: u32) -> u8 = "SystemFunction036"
+        fn move_file(source: RawPtr<u16>, destination: RawPtr<u16>, flags: u32) -> i32 = "MoveFileExW"
+        fn delete_file(path: RawPtr<u16>) -> i32 = "DeleteFileW"
+    }
+
+    fn make_temporary_file(path: write Buffer) -> Option<File> {
+        if buffer_is_path(path) == false || buffer_length(path) < 7 {
+            return None()
+        }
+        let start = buffer_length(path) - 7
+        for index in start..start + 6 {
+            if buffer_get(path, index) != 88 {
+                return None()
+            }
+        }
+        let alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        for attempt in 0..128 {
+            attempt;
+            var bytes: [u8; 6] = [0, 0, 0, 0, 0, 0]
+            unsafe {
+                if random_bytes(bytes.as_raw(), 6) == 0 {
+                    return None()
+                }
+            }
+            loan read alphabet as letters {
+                for index in 0..6 {
+                    let digit = bytes[index] % 62
+                    buffer_set(path, start + index, letters[usize.from(digit)])
+                }
+            }
+            match open_buffer_file(path, 1282) {
+                Some(file) => {
+                    return Some(move file)
+                }
+                None => {
+                }
+            }
+        }
+        return None()
+    }
+
+    fn rename_host_file(source: Buffer, destination: Buffer) -> i32 {
+        let first = match buffer_path(source) {
+            Some(value) => move value,
+            None => {
+                return -1
+            }
+        }
+        let second = match buffer_path(destination) {
+            Some(value) => move value,
+            None => {
+                return -1
+            }
+        }
+        let from = match std::wstr::new(first) {
+            Some(value) => move value,
+            None => {
+                return -1
+            }
+        }
+        let to = match std::wstr::new(second) {
+            Some(value) => move value,
+            None => {
+                return -1
+            }
+        }
+        unsafe {
+            return if move_file(std::wstr::as_raw(from), std::wstr::as_raw(to), 9) != 0 {
+                0
+            } else {
+                -1
+            }
+        }
+    }
+
+    fn unlink_host_file(path: Buffer) -> i32 {
+        let text = match buffer_path(path) {
+            Some(value) => move value,
+            None => {
+                return -1
+            }
+        }
+        let encoded = match std::wstr::new(text) {
+            Some(value) => move value,
+            None => {
+                return -1
+            }
+        }
+        unsafe {
+            return if delete_file(std::wstr::as_raw(encoded)) != 0 {
+                0
+            } else {
+                -1
+            }
+        }
+    }
+}

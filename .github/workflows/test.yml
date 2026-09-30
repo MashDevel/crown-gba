@@ -16,16 +16,24 @@ jobs:
     name: ${{ matrix.host }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      CROWN_ROOT: ${{ github.workspace }}/lang
     strategy:
       fail-fast: false
       matrix:
         include:
           - host: x86_64-linux
             runner: ubuntu-24.04
+          - host: arm64-linux
+            runner: ubuntu-24.04-arm
           - host: x86_64-macos
             runner: macos-15-intel
           - host: arm64-macos
             runner: macos-15
+          - host: x86_64-windows
+            runner: windows-2025
+          - host: arm64-windows
+            runner: windows-11-arm
     defaults:
       run:
         shell: bash
@@ -38,18 +46,30 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: MashDevel/crown-lang
-          ref: 3345dc0e998db6e4af0901190a24d9ce415721bb
+          ref: b7c3e3f32f7ccfe6c58a61b263964e1c1c57c63f
           path: lang
           persist-credentials: false
-      - name: Bootstrap pinned Crown compiler
-        id: bootstrap
+      - name: Fetch Crown on macOS and Linux
+        if: ${{ runner.os != 'Windows' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p target/ci
-          sh ../lang/bootstrap/fetch
-          ../lang/bootstrap/crown --version
-          echo "$GITHUB_WORKSPACE/lang/target/bootstrap" >> "$GITHUB_PATH"
+          compiler=$(sh ../lang/bootstrap/fetch-compiler)
+          echo "$(dirname "$compiler")" >> "$GITHUB_PATH"
+      - name: Fetch Crown on Windows
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force target/ci | Out-Null
+          $compiler = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../lang/bootstrap/fetch.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Crown download failed' }
+          [IO.Path]::GetDirectoryName($compiler) >> $env:GITHUB_PATH
+      - name: Check pinned Crown compiler
+        id: bootstrap
+        run: crown --version
       - name: Check formatting
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         run: crown fmt src tests --check
@@ -57,7 +77,9 @@ jobs:
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
         run: |
           status=0
-          for project in . tests tests/core tests/validation; do
+          projects=(. tests tests/core tests/validation)
+          if [ "$RUNNER_OS" = Windows ]; then projects+=(tests/windows); fi
+          for project in "${projects[@]}"; do
             name=${project//\//-}
             crown lint "$project" --output "target/ci/metrics-$name.json" || status=1
           done

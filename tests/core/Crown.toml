@@ -1,7 +1,7 @@
 [package]
 name = "gba_crown_core_tests"
 sources = ["../../src", "."]
-exclude = ["../../src/platform", "../../src/frontend/command.cwn", "../../src/frontend/playback/run.macos.cwn", "../../src/frontend/playback/run.linux.cwn", "../../src/frontend/screenshot.cwn", "../../src/main.cwn"]
+exclude = ["../../src/platform", "../../src/frontend/command.cwn", "../../src/frontend/playback/run.macos.cwn", "../../src/frontend/playback/run.linux.cwn", "../../src/frontend/playback/run.windows.cwn", "../../src/frontend/screenshot.cwn", "../../src/main.cwn"]
 
 [toolchain]
 libraries = ["platform", "integrations"]

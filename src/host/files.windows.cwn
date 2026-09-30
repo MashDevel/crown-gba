@@ -1,0 +1,151 @@
+module host {
+    opaque resource File {
+        value: i32
+        library: std::dylib::Library
+        drop {
+            unsafe {
+                if value >= 0 {
+                    let call = RawPtr<fn(read i32) -> i32>.cast(std::dylib::slot(library, 0)).read()
+                    call(value)
+                }
+            }
+        }
+    }
+
+    fn file_library() -> Result<std::dylib::Library, u32> {
+        return win::library("ucrtbase.dll", "_close|_read|_write|_lseeki64|_commit|_wopen")
+    }
+
+    fn path_separator(value: u8) -> bool {
+        return value == 47 || value == 92
+    }
+
+    fn buffer_path(path: Buffer) -> Option<Text> {
+        if buffer_is_path(path) == false {
+            return None()
+        }
+        var bytes = Vec<u8>.new()
+        for index in 0..buffer_length(path) - 1 {
+            bytes.push(buffer_get(path, index))
+        }
+        return match std::text::from_bytes(bytes) {
+            Ok(value) => Some(move value)
+            Err(error) => {
+                error;
+                None()
+            }
+        }
+    }
+
+    fn open_path_file(path: TextView, flags: i32) -> Option<File> {
+        let encoded = std::wstr::new(path)?
+        let library = match file_library() {
+            Ok(value) => move value,
+            Err(code) => {
+                code;
+                return None()
+            }
+        }
+        unsafe {
+            let call = RawPtr<fn(read RawPtr<u16>, read i32, read i32) -> i32>.cast(std::dylib::slot(library, 5)).read()
+            let descriptor = call(std::wstr::as_raw(encoded), flags | 32768, 384)
+            if descriptor < 0 {
+                return None()
+            }
+            return Some(File {
+                    value: descriptor, library: move library
+                })
+        }
+    }
+
+    fn open_buffer_file(path: Buffer, flags: i32) -> Option<File> {
+        let text = buffer_path(path)?
+        return open_path_file(text, flags)
+    }
+
+    fn read_host_file(file: File, buffer: write Buffer, length: usize) -> bool {
+        if length > buffer_length(buffer) {
+            return false
+        }
+        var offset: usize = 0
+        while offset < length {
+            unsafe {
+                let call = RawPtr<fn(read i32, read RawPtr<u8>, read u32) -> i32>.cast(std::dylib::slot(file.library, 1)).read()
+                let count = call(file.value, buffer_write_pointer(buffer).offset(offset), transfer_size(length - offset))
+                if count <= 0 {
+                    return false
+                }
+                offset = offset + usize.from(count)
+            }
+        }
+        return true
+    }
+
+    fn transfer_size(length: usize) -> u32 {
+        if length > 2147483647 {
+            return 2147483647
+        }
+        return u32.from(length)
+    }
+
+    fn seek_host_file(file: File, offset: i64, origin: i32) -> i64 {
+        unsafe {
+            let call = RawPtr<fn(read i32, read i64, read i32) -> i64>.cast(std::dylib::slot(file.library, 3)).read()
+            return call(file.value, offset, origin)
+        }
+    }
+
+    fn close_host_file(file: write File) -> i32 {
+        unsafe {
+            if file.value < 0 {
+                return 0
+            }
+            let call = RawPtr<fn(read i32) -> i32>.cast(std::dylib::slot(file.library, 0)).read()
+            let value = file.value
+            file.value = -1
+            return call(value)
+        }
+    }
+
+    fn sync_host_file(file: File) -> i32 {
+        unsafe {
+            let call = RawPtr<fn(read i32) -> i32>.cast(std::dylib::slot(file.library, 4)).read()
+            return call(file.value)
+        }
+    }
+
+    fn write_host_buffer(file: File, buffer: Buffer, length: usize) -> bool {
+        unsafe {
+            return write_descriptor(file.library, file.value, buffer, length)
+        }
+    }
+
+    fn write_descriptor(library: std::dylib::Library, file: i32, buffer: Buffer, length: usize) -> bool {
+        if length > buffer_length(buffer) {
+            return false
+        }
+        var offset: usize = 0
+        while offset < length {
+            unsafe {
+                let call = RawPtr<fn(read i32, read RawPtr<u8>, read u32) -> i32>.cast(std::dylib::slot(library, 2)).read()
+                let count = call(file, buffer_read_pointer(buffer).offset(offset), transfer_size(length - offset))
+                if count <= 0 {
+                    return false
+                }
+                offset = offset + usize.from(count)
+            }
+        }
+        return true
+    }
+
+    fn write_standard_error(buffer: Buffer, length: usize) -> bool {
+        let library = match file_library() {
+            Ok(value) => move value,
+            Err(code) => {
+                code;
+                return false
+            }
+        }
+        return write_descriptor(library, 2, buffer, length)
+    }
+}

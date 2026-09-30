@@ -6,26 +6,15 @@ module gba_tests {
         var arguments = Vec<Text>.new()
         arguments.push(context.binary.clone())
         arguments.push(context.rom.clone())
-        var command = toolchain::command(move arguments)
-        command.stdout = toolchain::path_join(context.output, "native.stdout")
-        command.stderr = toolchain::path_join(context.output, "native.stderr")
-        let pid = toolchain::start_process(command)?
+        var child = start_native(context, arguments)?
         let started = toolchain::milliseconds()
-        var status = toolchain::process_status_slot()
         while toolchain::milliseconds() - started < 3000 {
-            match toolchain::poll_process(pid, status)? {
-                Some(code) => {
-                    return Err(std::text::joined("native frontend exited: ", std::text::signed_decimal(i64.from(code))))
-                }
-                None => {
-                }
+            if native_exited(child) {
+                return Err("native frontend exited before heap inspection")
             }
             toolchain::wait_briefly()
         }
-        let result = inspect_drawables(context, pid)
-        unsafe {
-            toolchain::terminate_process(pid, status)
-        }
+        let result = inspect_drawables(context, native_pid(child))
         let count = match move result {
             Ok(value) => value
             Err(error) => {

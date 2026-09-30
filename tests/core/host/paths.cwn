@@ -1,0 +1,37 @@
+fn expect_save_path(source: TextView, expected: TextView) -> u32 {
+    let path = match backup::save_path(source) {
+        Ok(value) => move value
+        Err(code) => {
+            return code
+        }
+    }
+    if host::buffer_length(path) != expected.length() + 1 {
+        return 720
+    }
+    for index in 0..expected.length() {
+        if host::buffer_get(path, index) != expected[index] {
+            return 721
+        }
+    }
+    if host::buffer_get(path, expected.length()) != 0 {
+        return 722
+    }
+    return 0
+}
+
+fn test_save_paths() -> u32 {
+    let paths = ["game.gba", "folder.name/game", "game-é中😀.gba", "C:\\folder.name\\game"]
+    let windows = host::path_separator(92)
+    let expected = ["game.sav", "folder.name/game.sav", "game-é中😀.sav", if windows {
+            "C:\\folder.name\\game.sav"
+        } else {
+            "C:\\folder.sav"
+        }]
+    for index in 0..4 {
+        let result = expect_save_path(paths[index], expected[index])
+        if result != 0 {
+            return result
+        }
+    }
+    return 0
+}

@@ -1,0 +1,77 @@
+module host {
+
+    opaque resource Buffer {
+        data: Vec<u8>
+        length: usize
+        drop {
+        }
+    }
+
+    fn null_byte_pointer() -> RawPtr<u8> {
+        unsafe {
+            return RawPtr<u8>.from_address(0)
+        }
+    }
+
+    fn allocate_buffer(length: usize) -> Result<Buffer, u32> {
+        let data = std::bytes::filled(length, 0)
+        unsafe {
+            return Ok(Buffer {
+                    data: move data, length: length
+                })
+        }
+    }
+
+    fn buffer_length(buffer: Buffer) -> usize {
+        unsafe {
+            return buffer.length
+        }
+    }
+
+    fn buffer_get(buffer: Buffer, index: usize) -> u8 {
+        unsafe {
+            return buffer.data[index]
+        }
+    }
+
+    fn buffer_set(buffer: write Buffer, index: usize, value: u8) -> void {
+        unsafe {
+            buffer.data[index] = value
+        }
+        return
+    }
+
+    unsafe fn buffer_read_pointer(buffer: Buffer) -> RawPtr<u8> {
+        unsafe {
+            return buffer.data.as_raw()
+        }
+    }
+
+    unsafe fn buffer_write_pointer(buffer: write Buffer) -> RawPtr<u8> {
+        unsafe {
+            return buffer.data.as_raw()
+        }
+    }
+
+    fn buffer_is_path(buffer: Buffer) -> bool {
+        let length = buffer_length(buffer)
+        if length == 0 {
+            return false
+        }
+        var index: usize = 0
+        while index + 1 < length {
+            if buffer_get(buffer, index) == 0 {
+                return false
+            }
+            index = index + 1
+        }
+        return buffer_get(buffer, length - 1) == 0
+    }
+
+    fn write_buffer_file(path: TextView, buffer: Buffer) -> Result<void, std::io::Error> {
+        unsafe {
+            return std::io::write_file(path, buffer.data)
+        }
+    }
+
+}

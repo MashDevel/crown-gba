@@ -1,0 +1,45 @@
+module gba_tests {
+    opaque resource NativeProcess {
+        pid: i32
+        active: bool
+        drop {
+            if active {
+                unsafe {
+                    toolchain::raw_kill(pid, 9)
+                    var status: [i32; 1] = [0]
+                    toolchain::raw_waitpid(pid, status.as_raw(), 0)
+                }
+            }
+        }
+    }
+
+    fn start_native(context: Context, arguments: Vec<Text>) -> Result<NativeProcess, Text> {
+        var actions = toolchain::spawn_actions()?
+        toolchain::redirect(actions, 1, toolchain::path_join(context.output, "native.stdout"))?
+        toolchain::redirect(actions, 2, toolchain::path_join(context.output, "native.stderr"))?
+        let pid = toolchain::spawn_process(arguments, actions)?
+        unsafe {
+            return Ok(NativeProcess {
+                    pid: pid, active: true
+                })
+        }
+    }
+
+    fn native_pid(child: NativeProcess) -> i32 {
+        unsafe {
+            return child.pid
+        }
+    }
+
+    fn native_exited(child: write NativeProcess) -> bool {
+        unsafe {
+            var status: [i32; 1] = [0]
+            let result = toolchain::raw_waitpid(child.pid, status.as_raw(), 1)
+            if result == child.pid {
+                child.active = false;
+                return true
+            }
+            return result < 0
+        }
+    }
+}

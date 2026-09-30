@@ -1,4 +1,8 @@
 module gba_tests {
+    fn project_binary(root: Text, name: Text) -> Text {
+        return toolchain::path_join(toolchain::path_join(root, "target/debug"), toolchain::executable_name(name, toolchain::host_target()))
+    }
+
     fn build_project(context: write Context, source: Text, name: Text) -> Result<void, Text> {
         var arguments = Vec<Text>.new()
         arguments.push(context.compiler.clone())
@@ -65,7 +69,7 @@ module gba_tests {
             "@option" => toolchain::path_join(context.output, "option.bmp")
             "@first" => toolchain::path_join(context.output, "first.bmp")
             "@second" => toolchain::path_join(context.output, "second.bmp")
-            "@save" => toolchain::path_join(context.output, "save_test.gba")
+            "@save" => toolchain::path_join(context.output, "save-é中😀.gba")
             "@missing_bios" => toolchain::path_join(context.output, "missing_bios.bin")
             _ => value.clone()
         }

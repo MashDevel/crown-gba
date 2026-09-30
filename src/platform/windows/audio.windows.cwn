@@ -1,0 +1,131 @@
+module platform {
+    extern "c" {
+        fn audio_abort() -> void = "abort"
+        fn sleep(milliseconds: u32) -> void = "Sleep"
+        fn milliseconds() -> u64 = "GetTickCount64"
+    }
+
+    opaque resource Audio {
+        library: std::dylib::Library
+        device: usize
+        headers: Vec<u64>
+        samples: Vec<i16>
+        ring: app::SampleRing
+        queued: usize
+        started: bool
+        silent: app::AudioQueue
+        drop {
+            close_audio_device(library, device, headers)
+        }
+    }
+
+    fn close_audio_device(library: std::dylib::Library, device: usize, headers: Vec<u64>) -> void {
+        if device == 0 {
+            return
+        }
+        unsafe {
+            let reset = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(library, 4)).read()
+            let unprepare = RawPtr<fn(read usize, read RawPtr<u64>, read u32) -> u32>.cast(std::dylib::slot(library, 2)).read()
+            let close = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(library, 5)).read()
+            if reset(device) != 0 {
+                audio_abort()
+            }
+            for index in 0..4 {
+                if headers[index * 6 + 3] & 2 != 0 {
+                    if unprepare(device, headers.as_raw().offset(index * 6), 48) != 0 {
+                        audio_abort()
+                    }
+                }
+            }
+            if close(device) != 0 {
+                audio_abort()
+            }
+        }
+    }
+
+    fn open_audio() -> Result<Audio, u32> {
+        let library = win::library("winmm.dll", "waveOutOpen|waveOutPrepareHeader|waveOutUnprepareHeader|waveOutWrite|waveOutReset|waveOutClose|waveOutPause|waveOutRestart")?
+        unsafe {
+            var output = Audio {
+                library: move library, device: 0, headers: Vec<u64>.new(), samples: Vec<i16>.new(),
+                ring: app::sample_ring(), queued: 0, started: false, silent: app::new_audio_queue(app::OUTPUT_RATE)
+            }
+            initialize_audio(output)?
+            return Ok(move output)
+        }
+    }
+
+    fn initialize_audio(output: write Audio) -> Result<void, u32> {
+        unsafe {
+            for index in 0..24 {
+                index;
+                output.headers.push(0)
+            }
+            for index in 0..8192 {
+                index;
+                output.samples.push(0)
+            }
+            let open = RawPtr<fn(read RawPtr<usize>, read u32, read RawPtr<u16>, read usize, read usize, read u32) -> u32>.cast(std::dylib::slot(output.library, 0)).read()
+            var device: [usize; 1] = [0]
+            let format: [u16; 9] = [1, 2, 48000, 0, 60928, 2, 4, 16, 0]
+            let status = open(device.as_raw(), 4294967295, format.as_raw(), 0, 0, 0)
+            if status == 2 || status == 6 {
+                app::audio_queue_start(output.silent, milliseconds())
+                return Ok(())
+            }
+            if status != 0 {
+                return Err(90)
+            }
+            output.device = device[0]
+            let pause = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(output.library, 6)).read()
+            if pause(output.device) != 0 {
+                return Err(91)
+            }
+            return prepare_audio(output)
+        }
+    }
+
+    fn prepare_audio(output: write Audio) -> Result<void, u32> {
+        unsafe {
+            let prepare = RawPtr<fn(read usize, read RawPtr<u64>, read u32) -> u32>.cast(std::dylib::slot(output.library, 1)).read()
+            for index in 0..4 {
+                output.headers[index * 6] = win::address(RawPtr<u8>.cast(output.samples.as_raw().offset(index * 2048)))
+                output.headers[index * 6 + 1] = 4096
+                if prepare(output.device, output.headers.as_raw().offset(index * 6), 48) != 0 {
+                    return Err(92)
+                }
+            }
+        }
+        return Ok(())
+    }
+
+    fn audio_needs_frames(audio: Audio) -> bool {
+        unsafe {
+            if audio.device == 0 {
+                return audio.silent.queued_frames < 3840
+            }
+            return audio.queued + app::ring_frames(audio.ring) < app::audio_target_frames(1024)
+        }
+    }
+
+    fn poll_audio(audio: write Audio, timeout: u32) -> u32 {
+        unsafe {
+            if timeout != 0 {
+                sleep(timeout)
+            }
+            if audio.device == 0 {
+                app::audio_queue_advance(audio.silent, app::AudioClock {
+                        now: milliseconds(), ticks_per_second: 1000, rate: app::OUTPUT_RATE
+                    })
+                return 0
+            }
+            audio.queued = 0
+            for index in 0..4 {
+                if audio.headers[index * 6 + 3] & 16 != 0 {
+                    audio.queued = audio.queued + 1024
+                }
+            }
+        }
+        return 0
+    }
+}

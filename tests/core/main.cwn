@@ -201,22 +201,22 @@ fn run_dma_tests(emulator: write emulator::State) -> u32 {
     return test_display_timing(emulator)
 }
 
+fn run_frontend_tests(emulator: write emulator::State) -> u32 {
+    let cases = [test_windows_frontend, test_save_paths, test_linux_frontend, test_native_input, test_native_frontend_state]
+    for index in 0..5 {
+        let check = cases[index]
+        let result = check()
+        if result != 0 {
+            return result
+        }
+    }
+    return test_audio_integrity(emulator)
+}
+
 fn run_loaded_tests(arguments: read Arguments, emulator: write emulator::State) -> u32 {
-    let integrity = test_audio_integrity(emulator)
-    if integrity != 0 {
-        return integrity
-    }
-    let linux = test_linux_frontend()
-    if linux != 0 {
-        return linux
-    }
-    let input = test_native_input();
-    if input != 0 {
-        return input
-    }
-    let native_state = test_native_frontend_state();
-    if native_state != 0 {
-        return native_state
+    let frontend = run_frontend_tests(emulator)
+    if frontend != 0 {
+        return frontend
     }
     let bios = run_bios_tests(emulator);
     if bios != 0 {

@@ -1,0 +1,64 @@
+fn test_windows_keyboard() -> u32 {
+    let keys: [u64; 10] = [90, 88, 8, 13, 39, 37, 38, 40, 83, 65]
+    for index in 0..10 {
+        if app::windows_key_mask(keys[index]) != u32.from(1) << u32.from(index) {
+            return 701
+        }
+    }
+    if app::windows_key_mask(0) != 0 || app::windows_key_mask(27) != 0 {
+        return 702
+    }
+    return 0
+}
+
+fn test_windows_controller() -> u32 {
+    let masks: [u16; 10] = [4096, 8192, 32, 16, 8, 4, 1, 2, 512, 256]
+    for index in 0..10 {
+        if app::windows_gamepad_keys(masks[index], 0, 0) != u32.from(1) << u32.from(index) {
+            return 703
+        }
+    }
+    if app::windows_gamepad_keys(65535, 0, 0) != 1023 {
+        return 704
+    }
+    if app::windows_gamepad_keys(0, 16383, -16383) != 0 {
+        return 705
+    }
+    if app::windows_gamepad_keys(0, 16384, -16384) != 144 {
+        return 706
+    }
+    if app::windows_gamepad_keys(0, -16384, 16384) != 96 {
+        return 707
+    }
+    return 0
+}
+
+fn test_windows_frontend() -> u32 {
+    let keyboard = test_windows_keyboard()
+    if keyboard != 0 {
+        return keyboard
+    }
+    let controller = test_windows_controller()
+    if controller != 0 {
+        return controller
+    }
+    if app::windows_image_dimensions(720, 480) !=[720, 480] {
+        return 708
+    }
+    if app::windows_image_dimensions(800, 600) !=[720, 480] {
+        return 709
+    }
+    if app::windows_image_dimensions(120, 160) !=[120, 80] {
+        return 710
+    }
+    if app::windows_image_dimensions(240, 80) !=[120, 80] {
+        return 711
+    }
+    if app::windows_image_dimensions(0, 160) !=[0, 0] {
+        return 712
+    }
+    if app::windows_image_dimensions(4294967295, 4294967295) !=[3840, 2560] {
+        return 713
+    }
+    return 0
+}

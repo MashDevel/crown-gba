@@ -1,0 +1,90 @@
+module platform {
+    opaque resource Window {
+        user: std::dylib::Library
+        graphics: std::dylib::Library
+        handle: usize
+        instance: usize
+        atom: u16
+        keyboard: u32
+        running: bool
+        drop {
+            unsafe {
+                let destroy = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(user, 3)).read()
+                let unregister = RawPtr<fn(read usize, read usize) -> i32>.cast(std::dylib::slot(user, 2)).read()
+                if handle != 0 {
+                    destroy(handle)
+                }
+                unregister(usize.from(atom), instance)
+            }
+        }
+    }
+
+    fn open_window() -> Result<Window, u32> {
+        let user = win::library("user32.dll", "RegisterClassExW|CreateWindowExW|UnregisterClassW|DestroyWindow|DefWindowProcW|LoadCursorW|PeekMessageW|TranslateMessage|DispatchMessageW|IsWindow|GetForegroundWindow|GetClientRect|GetDC|ReleaseDC|ShowWindow|AdjustWindowRect|FillRect|IsIconic")?
+        let graphics = win::library("gdi32.dll", "StretchDIBits|SetStretchBltMode|GetStockObject")?
+        let name = match std::wstr::new("Crown GBA") {
+            Some(value) => move value,
+            None => {
+                return Err(80)
+            }
+        }
+        unsafe {
+            let instance = window_instance()?
+            let atom = register_window(user, std::wstr::as_raw(name), instance)?
+            var window = Window {
+                user: move user, graphics: move graphics, handle: 0, instance: instance, atom: atom, keyboard: 0, running: true
+            }
+            window.handle = create_window(window, std::wstr::as_raw(name))
+            if window.handle == 0 {
+                return Err(81)
+            }
+            let show = RawPtr<fn(read usize, read i32) -> i32>.cast(std::dylib::slot(window.user, 14)).read()
+            show(window.handle, 5)
+            return Ok(move window)
+        }
+    }
+
+    unsafe fn register_window(user: std::dylib::Library, name: RawPtr<u16>, instance: usize) -> Result<u16, u32> {
+        unsafe {
+            let cursor = RawPtr<fn(read usize, read usize) -> usize>.cast(std::dylib::slot(user, 5)).read()
+            let register = RawPtr<fn(read RawPtr<u64>) -> u16>.cast(std::dylib::slot(user, 0)).read()
+            let procedure = std::dylib::slot(user, 4).read()
+            let descriptor: [u64; 10] = [80, win::address(procedure), 0, u64.from(instance), 0, u64.from(cursor(0, 32512)), 0, 0, win::address(RawPtr<u8>.cast(name)), 0]
+            let atom = register(descriptor.as_raw())
+            if atom == 0 {
+                return Err(82)
+            }
+            return Ok(atom)
+        }
+    }
+
+    unsafe fn create_window(window: Window, name: RawPtr<u16>) -> usize {
+        unsafe {
+            var rect: [i32; 4] = [0, 0, 720, 480]
+            let adjust = RawPtr<fn(read RawPtr<i32>, read u32, read i32) -> i32>.cast(std::dylib::slot(window.user, 15)).read()
+            if adjust(rect.as_raw(), 13565952, 0) == 0 {
+                return 0
+            }
+            let create = RawPtr<fn(read u32, read usize, read RawPtr<u16>, read u32, read i32, read i32, read i32, read i32, read usize, read usize, read usize, read usize) -> usize>.cast(std::dylib::slot(window.user, 1)).read()
+            return create(0, usize.from(window.atom), name, 13565952, -2147483648, -2147483648, rect[2] - rect[0], rect[3] - rect[1], 0, 0, window.instance, 0)
+        }
+    }
+
+    fn window_instance() -> Result<usize, u32> {
+        let kernel = win::library("kernel32.dll", "GetModuleHandleW")?
+        unsafe {
+            let module_handle = RawPtr<fn(read RawPtr<u16>) -> usize>.cast(std::dylib::slot(kernel, 0)).read()
+            let instance = module_handle(RawPtr<u16>.from_address(0))
+            if instance == 0 {
+                return Err(80)
+            }
+            return Ok(instance)
+        }
+    }
+
+    fn window_running(window: Window) -> bool {
+        unsafe {
+            return window.running
+        }
+    }
+}
