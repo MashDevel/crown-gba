@@ -17,6 +17,7 @@ module instruction_tests {
         thumb_immediates(emulator)?
         thumb_transfers(emulator)?
         thumb_stack(emulator)?
+        thumb_branches(emulator)?
         return shift_cases()
     }
 

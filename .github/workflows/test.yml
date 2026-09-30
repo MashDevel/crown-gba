@@ -96,7 +96,7 @@ jobs:
       - name: Run functional tests with coverage
         id: tests
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
-        run: crown test . --filter headless --output target/ci/tests --coverage target/ci/coverage
+        run: crown test . --output target/ci/tests --coverage target/ci/coverage
       - name: Require 95% line and branch coverage per package
         if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' && steps.tests.outcome != 'skipped' }}
         run: crown coverage target/ci/coverage --output target/ci/coverage.json

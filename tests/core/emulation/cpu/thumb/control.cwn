@@ -1,0 +1,51 @@
+module instruction_tests {
+    fn thumb_branches(emulator: write emulator::State) -> Result<void, u32> {
+        let opcodes: [u32; 4] = [0xd001, 0xd0ff, 0xe001, 0xe7ff]
+        let targets: [u32; 4] = [0x02000206, 0x02000202, 0x02000206, 0x02000202]
+        for index in 0..4 {
+            thumb_cpu(emulator)
+            cpu::set_flag(emulator.cpu, cpu::ZERO, true)
+            assertions::equal(cpu::thumb::execute_thumb(emulator, opcodes[index]), 3, 1010)?
+            assertions::equal(emulator.cpu.registers[cpu::PC], targets[index], 1011)?
+        }
+        thumb_cpu(emulator)
+        cpu::set_flag(emulator.cpu, cpu::ZERO, false)
+        assertions::equal(cpu::thumb::execute_thumb(emulator, 0xd001), 1, 1012)?
+        assertions::equal(emulator.cpu.registers[cpu::PC], 0x02000202, 1013)?
+        return thumb_links(emulator)
+    }
+
+    fn thumb_links(emulator: write emulator::State) -> Result<void, u32> {
+        let prefixes: [u32; 2] = [0xf001, 0xf7ff]
+        let targets: [u32; 2] = [0x0200120a, 0x01fff20a]
+        for index in 0..2 {
+            thumb_cpu(emulator)
+            assertions::equal(cpu::thumb::execute_thumb(emulator, prefixes[index]), 1, 1014)?
+            emulator.cpu.registers[cpu::PC] = 0x02000204
+            assertions::equal(cpu::thumb::execute_thumb(emulator, 0xf803), 3, 1015)?
+            assertions::equal(emulator.cpu.registers[cpu::LR], 0x02000205, 1016)?
+            assertions::equal(emulator.cpu.registers[cpu::PC], targets[index], 1017)?
+        }
+        return thumb_multiple_loads(emulator)
+    }
+
+    fn thumb_multiple_loads(emulator: write emulator::State) -> Result<void, u32> {
+        let lists: [u32; 3] = [0, 3, 5]
+        let final_base: [u32; 3] = [0x02000140, 0x02000201, 0x02000108]
+        let cycles: [u32; 3] = [2, 3, 3]
+        for index in 0..3 {
+            thumb_cpu(emulator)
+            emulator.cpu.registers[1] = 0x02000100
+            memory::write32(emulator.memory, 0x02000100, 0x12345679)
+            memory::write32(emulator.memory, 0x02000104, 0x02000201)
+            assertions::equal(cpu::thumb::execute_thumb(emulator, 0xc900 | lists[index]), cycles[index], 1018)?
+            assertions::equal(emulator.cpu.registers[1], final_base[index], 1019)?
+            if index == 0 {
+                assertions::equal(emulator.cpu.registers[cpu::PC], 0x12345678, 1020)?
+            } else {
+                assertions::equal(emulator.cpu.registers[0], 0x12345679, 1021)?
+            }
+        }
+        return Ok(())
+    }
+}
