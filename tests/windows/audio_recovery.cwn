@@ -33,7 +33,7 @@ module windows_tests {
         return Ok(())
     }
 
-    fn recovery_priming(audio: write platform::Audio, device: [u64; 3]) -> Result<void, u32> {
+    fn recovery_priming(audio: write platform::Audio, device: write[u64; 3]) -> Result<void, u32> {
         unsafe {
             var samples = Vec<i32>.new()
             for index in 0..2048 {
