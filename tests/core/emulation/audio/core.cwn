@@ -124,6 +124,10 @@ fn test_empty_audio_events(emulator: write emulator::State) -> u32 {
 }
 
 fn test_audio(emulator: write emulator::State) -> u32 {
+    let mixer = test_mixer_edges(emulator)
+    if mixer != 0 {
+        return mixer
+    }
     let fifo = test_audio_fifo_halfwords();
     if fifo != 0 {
         return fifo

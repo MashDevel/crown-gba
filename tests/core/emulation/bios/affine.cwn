@@ -26,7 +26,7 @@ fn test_bios_background_affine(emulator: write emulator::State) -> u32 {
     emulator.cpu.registers[0] = source
     emulator.cpu.registers[1] = output
     emulator.cpu.registers[2] = 1
-    bios::bg_affine_set(emulator)
+    bios::handle_swi(emulator, bios::call::BACKGROUND_AFFINE)
     if memory::read16(emulator.memory, emulator.cartridge, output) != 256 {
         return 70
     }
@@ -47,5 +47,31 @@ fn test_bios_affine(emulator: write emulator::State) -> u32 {
     if angles != 0 {
         return angles
     }
-    return test_bios_background_affine(emulator)
+    let background = test_bios_background_affine(emulator)
+    if background != 0 {
+        return background
+    }
+    return match stream_tests::object_affine(emulator) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module stream_tests {
+    fn object_affine(emulator: write emulator::State) -> Result<void, u32> {
+        prepare(emulator, 0x02000100)
+        memory::write32(emulator.memory, SOURCE + 4, 0)
+        emulator.cpu.registers[2] = 1
+        emulator.cpu.registers[3] = 2
+        bios::handle_swi(emulator, bios::call::OBJECT_AFFINE)
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT), 256, 1284)?
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT + 4), 0x02000000, 1285)?
+        emulator.cpu.registers[2] = 0
+        emulator.cpu.registers[3] = 0
+        bios::handle_swi(emulator, bios::call::OBJECT_AFFINE)
+        return assertions::equal(memory::read32(emulator.memory, emulator.cartridge, OUTPUT), 256, 1286)
+    }
 }

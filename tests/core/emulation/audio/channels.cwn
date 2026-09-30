@@ -1,0 +1,75 @@
+fn test_audio_channels() -> u32 {
+    match channel_tests::run() {
+        Ok(value) => {
+            value;
+            return 0
+        }
+        Err(code) => {
+            return code
+        }
+    }
+}
+
+module channel_tests {
+    fn run() -> Result<void, u32> {
+        lengths()?
+        envelopes()?
+        pulses()?
+        sweeps()?
+        noise()?
+        waves()?
+        registers()?
+        return boundaries()
+    }
+
+    fn lengths() -> Result<void, u32> {
+        for flags in 0..8 {
+            var control = audio::ChannelControl {
+                enabled: flags & 1 != 0, dac_enabled: flags & 2 != 0, length_enabled: flags & 4 != 0, length: 2
+            }
+            assertions::equal(bits::bool_u32(audio::channel_active(control)), bits::bool_u32(flags & 3 == 3), 920)?
+            audio::channel_length_tick(control)
+            let expected: u32 = if flags & 5 == 5 {
+                1
+            } else {
+                2
+            }
+            assertions::equal(u32.from(control.length), expected, 921)?
+            audio::channel_length_tick(control)
+            if expected == 1 {
+                assertions::equal(bits::bool_u32(control.enabled), 0, 922)?
+            }
+            audio::channel_length_tick(control)
+            audio::channel_set_dac(control, false)
+            assertions::equal(bits::bool_u32(control.enabled), 0, 923)?
+        }
+        return Ok(())
+    }
+
+    fn envelopes() -> Result<void, u32> {
+        let volumes: [u8; 4] = [0, 1, 14, 15]
+        let expected: [u32; 8] = [0, 0, 13, 14, 1, 2, 15, 15]
+        for index in 0..8 {
+            var envelope = audio::new_envelope()
+            audio::envelope_set(envelope, u16.from(volumes[index % 4]) << 12 | 512 | if index >= 4 {
+                    2048
+                } else {
+                    0
+                })
+            audio::envelope_trigger(envelope)
+            audio::envelope_tick(envelope, false)
+            audio::envelope_tick(envelope, true)
+            assertions::equal(u32.from(envelope.volume), u32.from(volumes[index % 4]), 924)?
+            audio::envelope_tick(envelope, true)
+            assertions::equal(u32.from(envelope.volume), expected[index], 925)?
+            envelope.timer = 0
+            audio::envelope_tick(envelope, true)
+            envelope.period = 0
+            audio::envelope_trigger(envelope)
+            let before = envelope.volume
+            audio::envelope_tick(envelope, true)
+            assertions::equal(u32.from(envelope.volume), u32.from(before), 926)?
+        }
+        return Ok(())
+    }
+}

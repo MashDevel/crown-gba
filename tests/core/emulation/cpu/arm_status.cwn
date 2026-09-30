@@ -1,0 +1,55 @@
+module instruction_tests {
+    fn arm_status(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu = cpu::new()
+        cpu::switch_mode(emulator.cpu, cpu::SUPERVISOR_MODE)
+        emulator.cpu.cpsr = 0xa0000013
+        cpu::set_spsr(emulator.cpu, cpu::SUPERVISOR_MODE, 0x6000001f)
+        assertions::equal(cpu::arm::execute_arm(emulator, 0xe10f0000), 1, 1200)?
+        assertions::equal(emulator.cpu.registers[0], 0xa0000013, 1201)?
+        cpu::arm::execute_arm(emulator, 0xe14f1000)
+        assertions::equal(emulator.cpu.registers[1], 0x6000001f, 1202)?
+        emulator.cpu.registers[2] = 0x90000000
+        cpu::arm::execute_arm(emulator, 0xe168f002)
+        assertions::equal(cpu::spsr(emulator.cpu, cpu::SUPERVISOR_MODE), 0x9000001f, 1203)?
+        cpu::arm::execute_arm(emulator, 0xe328f480)
+        assertions::equal(emulator.cpu.cpsr, 0x80000013, 1204)?
+        arm_user_status(emulator)?
+        arm_products(emulator)?
+        return arm_memory(emulator)
+    }
+
+    fn arm_user_status(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu.registers[2] = 0x1f
+        cpu::arm::execute_arm(emulator, 0xe121f002)
+        assertions::equal(emulator.cpu.cpsr, 0x8000001f, 1205)?
+        cpu::switch_mode(emulator.cpu, cpu::USER_MODE)
+        emulator.cpu.registers[2] = 0x60000013
+        cpu::arm::execute_arm(emulator, 0xe12ff002)
+        assertions::equal(emulator.cpu.cpsr, 0x60000010, 1206)?
+        let masks: [u32; 5] = [0, 0xff, 0xff00, 0xff0000, 0xff000000]
+        let fields: [u32; 5] = [0, 1, 2, 4, 8]
+        for index in 0..5 {
+            assertions::equal(cpu::arm::psr_mask(fields[index] << 16), masks[index], 1207)?
+        }
+        return Ok(())
+    }
+
+    fn arm_products(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu = cpu::new()
+        emulator.cpu.registers[0] = 0xffffffff
+        emulator.cpu.registers[1] = 2
+        assertions::equal64(cpu::arm::long_product(0xffffffff, 2, false), 0x1fffffffe, 1216)?
+        assertions::equal(cpu::arm::execute_arm(emulator, 0xe0932190), 3, 1213)?
+        assertions::equal(emulator.cpu.registers[0], 0xffffffff, 1214)?
+        assertions::equal(emulator.cpu.registers[1], 2, 1215)?
+        assertions::equal(emulator.cpu.registers[2], 0xfffffffe, 1208)?
+        assertions::equal(emulator.cpu.registers[3], 1, 1209)?
+        cpu::arm::execute_arm(emulator, 0xe0f32190)
+        assertions::equal(emulator.cpu.registers[2], 0xfffffffc, 1210)?
+        assertions::equal(emulator.cpu.registers[3], 1, 1211)?
+        emulator.cpu.registers[2] = 5
+        cpu::arm::execute_arm(emulator, 0xe0332190)
+        assertions::equal(emulator.cpu.registers[3], 3, 1212)?
+        return Ok(())
+    }
+}

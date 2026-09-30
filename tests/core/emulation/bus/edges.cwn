@@ -1,0 +1,28 @@
+module memory_tests {
+    fn edges(emulator: write emulator::State) -> Result<void, u32> {
+        backup::eeprom_clear_command(emulator.memory)
+        backup::eeprom_clear_read(emulator.memory)
+        emulator.memory.save_kind = backup::Kind::Eeprom()
+        assertions::equal(u32.from(bus::fetch16(emulator, 0x0d000000)), 1, 1420)?
+        assertions::equal(bus::fetch32(emulator, 0x0d000000), 0x10001, 1421)?
+        emulator.memory.save_kind = backup::Kind::Absent()
+        assertions::equal(u32.from(bus::fetch16(emulator, 0x0d000000)), u32.from(cartridge::read16(emulator.cartridge, 0x0d000000)), 1422)?
+        assertions::equal(bus::fetch32(emulator, 0x0d000000), cartridge::read32(emulator.cartridge, 0x0d000000), 1423)?
+        emulator.last_open_bus = 0x12345678
+        assertions::equal(u32.from(bus::fetch16(emulator, 0xff000000)), 0x5678, 1424)?
+        assertions::equal(bus::fetch32(emulator, 0xff000000), 0x12345678, 1425)?
+        io_edges(emulator)?
+        return register_edges(emulator)
+    }
+
+    fn io_edges(emulator: write emulator::State) -> Result<void, u32> {
+        bus::write8(emulator, 0x02000000, 0x42)
+        assertions::equal(u32.from(bus::read8(emulator, 0x02000000)), 0x42, 1426)?
+        bus::write8(emulator, 0x04000220, 0x55)
+        assertions::equal(u32.from(bus::read16(emulator, 0x04000220)), 0x5655, 1427)?
+        assertions::equal(bits::bool_u32(bus::io_byte_mapped(0x03000000)), 0, 1428)?
+        audio::write16(emulator.audio, audio::BIAS_CONTROL, 0x123)
+        assertions::equal(u32.from(bus::read16(emulator, memory::io_address(audio::BIAS_CONTROL))), 0x123, 1429)?
+        return Ok(())
+    }
+}

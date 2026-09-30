@@ -1,10 +1,5 @@
 fn expect_save_path(source: TextView, expected: TextView) -> u32 {
-    let path = match backup::save_path(source) {
-        Ok(value) => move value
-        Err(code) => {
-            return code
-        }
-    }
+    let path = backup::save_path(source)
     if host::buffer_length(path) != expected.length() + 1 {
         return 720
     }

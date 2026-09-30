@@ -1,0 +1,146 @@
+module cpu {
+    fn save_mode(cpu: write State, mode: u32) -> void {
+        var index: usize = 0
+        if mode == FIQ_MODE {
+            while index < 7 {
+                cpu.fiq_high[index] = cpu.registers[index + 8]
+                index = index + 1
+            }
+            return
+        }
+        while index < 5 {
+            cpu.user_high[index] = cpu.registers[index + 8]
+            index = index + 1
+        }
+        save_stack_bank(cpu, mode)
+        return
+    }
+
+    fn save_stack_bank(cpu: write State, mode: u32) -> void {
+        if mode == SUPERVISOR_MODE {
+            cpu.supervisor_stack[0] = cpu.registers[cpu::SP]
+            cpu.supervisor_stack[1] = cpu.registers[cpu::LR]
+            return
+        }
+        if mode == ABORT_MODE {
+            cpu.abort_stack[0] = cpu.registers[cpu::SP]
+            cpu.abort_stack[1] = cpu.registers[cpu::LR]
+            return
+        }
+        if mode == IRQ_MODE {
+            cpu.irq_stack[0] = cpu.registers[cpu::SP]
+            cpu.irq_stack[1] = cpu.registers[cpu::LR]
+            return
+        }
+        if mode == UNDEFINED_MODE {
+            cpu.undefined_stack[0] = cpu.registers[cpu::SP]
+            cpu.undefined_stack[1] = cpu.registers[cpu::LR]
+            return
+        }
+        cpu.user_high[5] = cpu.registers[cpu::SP]
+        cpu.user_high[6] = cpu.registers[cpu::LR]
+        return
+    }
+
+    fn load_mode(cpu: write State, mode: u32) -> void {
+        var index: usize = 0
+        if mode == FIQ_MODE {
+            while index < 7 {
+                cpu.registers[index + 8] = cpu.fiq_high[index]
+                index = index + 1
+            }
+            return
+        }
+        while index < 5 {
+            cpu.registers[index + 8] = cpu.user_high[index]
+            index = index + 1
+        }
+        load_stack_bank(cpu, mode)
+        return
+    }
+
+    fn load_stack_bank(cpu: write State, mode: u32) -> void {
+        if mode == SUPERVISOR_MODE {
+            cpu.registers[cpu::SP] = cpu.supervisor_stack[0]
+            cpu.registers[cpu::LR] = cpu.supervisor_stack[1]
+            return
+        }
+        if mode == ABORT_MODE {
+            cpu.registers[cpu::SP] = cpu.abort_stack[0]
+            cpu.registers[cpu::LR] = cpu.abort_stack[1]
+            return
+        }
+        if mode == IRQ_MODE {
+            cpu.registers[cpu::SP] = cpu.irq_stack[0]
+            cpu.registers[cpu::LR] = cpu.irq_stack[1]
+            return
+        }
+        if mode == UNDEFINED_MODE {
+            cpu.registers[cpu::SP] = cpu.undefined_stack[0]
+            cpu.registers[cpu::LR] = cpu.undefined_stack[1]
+            return
+        }
+        cpu.registers[cpu::SP] = cpu.user_high[5]
+        cpu.registers[cpu::LR] = cpu.user_high[6]
+        return
+    }
+
+    fn switch_mode(cpu: write State, next: u32) -> void {
+        let previous = mode(cpu)
+        if previous == next {
+            return
+        }
+        save_mode(cpu, previous)
+        load_mode(cpu, next)
+        cpu.cpsr = cpu.cpsr & ~MODE_MASK | next
+        return
+    }
+
+    fn spsr(cpu: State, mode: u32) -> u32 {
+        if mode == FIQ_MODE {
+            return cpu.spsr_fiq
+        }
+        if mode == SUPERVISOR_MODE {
+            return cpu.spsr_supervisor
+        }
+        if mode == ABORT_MODE {
+            return cpu.spsr_abort
+        }
+        if mode == IRQ_MODE {
+            return cpu.spsr_irq
+        }
+        if mode == UNDEFINED_MODE {
+            return cpu.spsr_undefined
+        }
+        return 0
+    }
+
+    fn set_spsr(cpu: write State, mode: u32, value: u32) -> void {
+        if mode == FIQ_MODE {
+            cpu.spsr_fiq = value
+        }
+        if mode == SUPERVISOR_MODE {
+            cpu.spsr_supervisor = value
+        }
+        if mode == ABORT_MODE {
+            cpu.spsr_abort = value
+        }
+        if mode == IRQ_MODE {
+            cpu.spsr_irq = value
+        }
+        if mode == UNDEFINED_MODE {
+            cpu.spsr_undefined = value
+        }
+        return
+    }
+
+    fn restore_spsr(cpu: write State) -> void {
+        let old_mode = mode(cpu)
+        let status = spsr(cpu, old_mode)
+        let next_mode = status & MODE_MASK
+        save_mode(cpu, old_mode)
+        load_mode(cpu, next_mode)
+        cpu.cpsr = status
+        return
+    }
+}

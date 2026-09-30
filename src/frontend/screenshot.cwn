@@ -22,18 +22,10 @@ module screenshot {
     const CLOSE_ERROR: u32 = 63
 
     fn save_frame_bmp(path: TextView, ppu: video::State) -> u32 {
-        let created = host::allocate_buffer(FILE_BYTES)
-        match move created {
-            Ok(buffer) => {
-                var image = move buffer
-                write_bmp_header(image)
-                write_bmp_pixels(image, ppu)
-                return write_bmp_file(path, image)
-            }
-            Err(code) => {
-                return code
-            }
-        }
+        var image = host::allocate_buffer(FILE_BYTES)
+        write_bmp_header(image)
+        write_bmp_pixels(image, ppu)
+        return write_bmp_file(path, image)
     }
 
     fn write_bmp_header(buffer: write host::Buffer) -> void {

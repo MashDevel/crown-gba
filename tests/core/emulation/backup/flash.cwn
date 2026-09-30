@@ -130,7 +130,7 @@ fn test_flash_erase(emulator: write emulator::State) -> u32 {
 }
 
 fn test_flash_protocol(emulator: write emulator::State) -> u32 {
-    let cases = [test_flash_rejected_unlock, test_flash_payload, test_flash_erase]
+    let cases = [test_backup_sizes, test_flash_rejected_unlock, test_flash_payload, test_flash_erase]
     loan read cases as values {
         return run_emulator_cases(emulator, values)
     }

@@ -233,18 +233,10 @@ module bios {
     }
 
     fn debug_print(emulator: write emulator::State) -> void {
-        let allocated = host::allocate_buffer(DEBUG_BUFFER_CAPACITY)
-        match move allocated {
-            Ok(buffer) => {
-                var output = move buffer
-                let length = copy_debug_text(emulator, output)
-                if length != 0 {
-                    host::write_standard_error(output, length)
-                }
-            }
-            Err(code) => {
-                emulator.unsupported_swi = code
-            }
+        var output = host::allocate_buffer(DEBUG_BUFFER_CAPACITY)
+        let length = copy_debug_text(emulator, output)
+        if length != 0 {
+            host::write_standard_error(output, length)
         }
         return
     }

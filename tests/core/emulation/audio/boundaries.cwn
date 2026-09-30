@@ -1,0 +1,20 @@
+module channel_tests {
+    fn boundaries() -> Result<void, u32> {
+        var state = audio::new()
+        assertions::equal(u32.from(audio::read16(state, 0)), 0, 1680)?
+        assertions::equal(u32.from(audio::read16(state, audio::REGISTER_END)), 0, 1681)?
+        for index in 0..33 {
+            audio::fifo_push(state.fifo_a, u8.from(index))
+        }
+        assertions::equal(u32.from(state.fifo_a.length), 32, 1682)?
+        state.pulse1.phase_cycles = 12
+        state.wave.index = 5
+        state.noise.lfsr = 123
+        audio::pulse_set_frequency(state.pulse1, 1)
+        audio::wave_set_frequency(state.wave, 1)
+        audio::noise_set_control(state.noise, 1)
+        assertions::equal(u32.from(state.pulse1.phase_cycles), 12, 1683)?
+        assertions::equal(u32.from(state.wave.index), 5, 1684)?
+        return assertions::equal(u32.from(state.noise.lfsr), 123, 1685)
+    }
+}

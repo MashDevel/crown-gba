@@ -1,0 +1,43 @@
+fn test_poll_edges() -> u32 {
+    return match poll_tests::edges() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module poll_tests {
+    fn missing(poll: take Option<emulator::PollLoop>) -> u32 {
+        match move poll {
+            Some(value) => {
+                value;
+                1
+            }
+            None => 0
+        }
+    }
+
+    fn edges() -> Result<void, u32> {
+        let loads: [u32; 3] = [0xe1df10b0, 0xe1d0f0b0, 0xe1d000b0]
+        for index in 0..3 {
+            var emulator = new_poll_test_emulator(0)
+            memory::write32(emulator.memory, 0x03000100, loads[index])
+            assertions::equal(missing(emulator::poll_loop(emulator)), 0, 1600)?
+        }
+        var emulator = new_poll_test_emulator(0)
+        memory::write32(emulator.memory, 0x03000104, 0xe1a00000)
+        assertions::equal(missing(emulator::poll_loop(emulator)), 0, 1601)?
+        memory::write32(emulator.memory, 0x03000104, 0xe351009f)
+        emulator.last_open_bus = 0
+        assertions::equal(missing(emulator::poll_loop(emulator)), 0, 1602)?
+        memory::io_store16(emulator.memory, video::VCOUNT, 159)
+        emulator.cpu.registers[1] = 159
+        emulator.cpu.cpsr = cpu::SYSTEM_MODE | 0x60000000
+        let polling = emulator::PollLoop {
+            register: 1, compare: 159, branch: 0x0afffffc
+        }
+        return assertions::equal(bits::bool_u32(emulator::poll_state_matches(emulator, polling)), 1, 1603)
+    }
+}

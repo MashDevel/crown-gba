@@ -1,0 +1,27 @@
+set -euo pipefail
+mkdir -p target/ci
+session=$(mktemp -d "$PWD/target/ci/desktop.XXXXXX")
+export XDG_RUNTIME_DIR="$session/runtime"
+export XDG_CONFIG_HOME="$session/config"
+mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME/pipewire/pipewire.conf.d"
+chmod 700 "$XDG_RUNTIME_DIR"
+cp tests/ci/pipewire-sink.conf "$XDG_CONFIG_HOME/pipewire/pipewire.conf.d/crown.conf"
+pipewire > target/ci/pipewire.log 2>&1 &
+server=$!
+manager=""
+cleanup() {
+    pw-link -l > target/ci/pipewire-links.log 2>&1 || true
+    if [ -n "$manager" ]; then kill "$manager" 2>/dev/null || true; fi
+    kill "$server" 2>/dev/null || true
+    wait "$server" 2>/dev/null || true
+}
+trap cleanup EXIT
+for attempt in {1..100}; do
+    if pw-cli info 0 > /dev/null 2>&1; then break; fi
+    kill -0 "$server"
+    sleep 0.1
+done
+pw-cli info 0 > target/ci/pipewire-info.log
+wireplumber > target/ci/wireplumber.log 2>&1 &
+manager=$!
+xvfb-run -a -s '-screen 0 1280x720x24' "$@"

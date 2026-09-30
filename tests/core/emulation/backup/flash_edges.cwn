@@ -1,0 +1,24 @@
+module backup_size_tests {
+    fn flash_edges(memory: write memory::State) -> Result<void, u32> {
+        memory.save_kind = backup::Kind::Absent()
+        memory.backup[0] = 0x42
+        backup::write8(memory, memory::SAVE_START, 1)
+        assertions::equal(u32.from(memory.backup[0]), 0x42, 1700)?
+        memory.flash_id = false
+        memory.flash_state = backup::FlashState::Command()
+        backup::flash_advance(memory, backup::FlashWrite {
+                offset: 0, value: backup::FLASH_IDENTIFY
+            })
+        assertions::equal(bits::bool_u32(memory.flash_id), 0, 1701)?
+        memory.flash_state = backup::FlashState::Program()
+        backup::flash_advance(memory, backup::FlashWrite {
+                offset: 0, value: 1
+            })
+        assertions::equal(u32.from(memory.backup[0]), 0x42, 1702)?
+        assertions::equal(bits::bool_u32(backup::flash_unlock_byte(backup::FlashWrite {
+                        offset: backup::FLASH_UNLOCK_SECOND_ADDRESS + 1, value: 0x55
+                    }, false)), 0, 1703)?
+        memory.flash_state = backup::FlashState::Ready()
+        return Ok(())
+    }
+}

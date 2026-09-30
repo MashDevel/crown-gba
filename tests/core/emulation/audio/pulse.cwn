@@ -1,0 +1,43 @@
+module channel_tests {
+    fn pulses() -> Result<void, u32> {
+        for duty in 0..4 {
+            var pulse = audio::new_pulse_channel()
+            audio::pulse_step(pulse, 128)
+            assertions::equal(u32.from_bits(audio::pulse_sample(pulse)), 0, 927)?
+            audio::pulse_set_envelope(pulse, 0x3000 | u16.from(duty) << 6)
+            audio::pulse_set_frequency(pulse, 0x87ff)
+            assertions::equal(u32.from_bits(audio::pulse_sample(pulse)), 3, 928)?
+            audio::pulse_step(pulse, 127)
+            assertions::equal(u32.from_bits(audio::pulse_sample(pulse)), u32.from_bits(-3), 929)?
+            pulse.envelope.volume = 0
+            audio::pulse_step(pulse, 1)
+            assertions::equal(u32.from_bits(audio::pulse_sample(pulse)), 0, 930)?
+            assertions::equal(u32.from(pulse.phase_cycles), 127, 931)?
+        }
+        return Ok(())
+    }
+
+    fn sweeps() -> Result<void, u32> {
+        var pulse = audio::new_pulse_channel()
+        audio::pulse_sweep_tick(pulse)
+        audio::pulse_set_envelope(pulse, 0x3000)
+        audio::pulse_set_sweep(pulse, 0x20)
+        audio::pulse_set_frequency(pulse, 0x8200)
+        audio::pulse_sweep_tick(pulse)
+        assertions::equal(u32.from(pulse.frequency), 512, 932)?
+        pulse.sweep_shift = 1
+        audio::pulse_sweep_tick(pulse)
+        assertions::equal(u32.from(pulse.frequency), 512, 933)?
+        audio::pulse_sweep_tick(pulse)
+        assertions::equal(u32.from(pulse.frequency), 768, 934)?
+        pulse.sweep_negate = true
+        pulse.sweep_timer = 0
+        pulse.sweep_period = 0
+        audio::pulse_sweep_tick(pulse)
+        assertions::equal(u32.from(pulse.frequency), 384, 935)?
+        pulse.sweep_negate = false
+        pulse.shadow_frequency = 2000
+        audio::pulse_sweep_tick(pulse)
+        return assertions::equal(bits::bool_u32(pulse.control.enabled), 0, 936)
+    }
+}

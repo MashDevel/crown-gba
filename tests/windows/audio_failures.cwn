@@ -1,0 +1,83 @@
+module windows_tests {
+    fn fail_audio(device: usize) -> u32 {
+        device;
+        return 1
+    }
+
+    fn fail_header(device: usize, header: RawPtr<u64>, size: u32) -> u32 {
+        device;
+        header;
+        size;
+        return 1
+    }
+
+    fn audio_failures() -> Result<void, u32> {
+        var device: [u64; 3] = [0, 0, 0]
+        unsafe {
+            var audio = mock_audio(device.as_raw())?
+            let unary: [fn(read usize) -> u32; 1] = [fail_audio]
+            let headers: [fn(read usize, read RawPtr<u64>, read u32) -> u32; 1] = [fail_header]
+            std::dylib::slot(audio.library, 7).write(RawPtr<RawPtr<u8>>.cast(unary.as_raw()).read())
+            audio.started = false
+            audio.queued = platform::AUDIO_START_FRAMES
+            if platform::start_audio(audio) || audio.started {
+                return Err(60)
+            }
+            std::dylib::slot(audio.library, 1).write(RawPtr<RawPtr<u8>>.cast(headers.as_raw()).read())
+            match platform::prepare_audio(audio) {
+                Ok(value) => {
+                    value;
+                    return Err(61)
+                }
+                Err(code) => {
+                    if code != 92 {
+                        return Err(62)
+                    }
+                }
+            }
+            std::dylib::slot(audio.library, 3).write(RawPtr<RawPtr<u8>>.cast(headers.as_raw()).read())
+            var samples = Vec<i32>.new()
+            for index in 0..2048 {
+                index;
+                samples.push(0)
+            }
+            if platform::submit_audio(audio, samples, app::OUTPUT_RATE) {
+                return Err(63)
+            }
+        }
+        return silent_audio()
+    }
+
+    fn silent_audio() -> Result<void, u32> {
+        var device: [u64; 3] = [0, 0, 0]
+        unsafe {
+            var audio = mock_audio(device.as_raw())?
+            audio.device = 0
+            var samples = Vec<i32>.new()
+            for index in 0..4096 {
+                index;
+                samples.push(0)
+            }
+            if platform::submit_audio(audio, samples, app::OUTPUT_RATE) == false {
+                return Err(64)
+            }
+            silent_state(audio)?
+        }
+        return Ok(())
+    }
+
+    fn silent_state(audio: write platform::Audio) -> Result<void, u32> {
+        unsafe {
+            if platform::audio_should_render(audio) == false || platform::audio_needs_frames(audio) == false {
+                return Err(65)
+            }
+            if app::ring_frames(audio.ring) != 0 || audio.silent.queued_frames != 2048 {
+                return Err(66)
+            }
+            if platform::poll_audio(audio, 0) != 0 {
+                return Err(67)
+            }
+        }
+        return Ok(())
+    }
+}

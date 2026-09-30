@@ -1,0 +1,95 @@
+module cpu {
+    module arm {
+        struct SingleTransfer {
+            load: bool
+            byte: bool
+            preindex: bool
+            up: bool
+            writeback: bool
+            base_register: usize
+            data_register: usize
+            offset: u32
+        }
+
+        fn execute_single(emulator: write emulator::State, opcode: u32) -> u32 {
+            let transfer = single_transfer(emulator.cpu, opcode)
+            let base = cpu::read_register(emulator.cpu, transfer.base_register)
+            var adjusted = base.wrapping_add(transfer.offset)
+            if transfer.up == false {
+                adjusted = base.wrapping_sub(transfer.offset)
+            }
+            var address = base
+            if transfer.preindex {
+                address = adjusted
+            }
+            if transfer.load {
+                single_load(emulator, transfer, address)
+            } else {
+                single_store(emulator, transfer, address)
+            }
+            if transfer.preindex == false {
+                cpu::write_register(emulator.cpu, transfer.base_register, adjusted)
+            } else {
+                if transfer.writeback {
+                    cpu::write_register(emulator.cpu, transfer.base_register, adjusted)
+                }
+            }
+            if transfer.load {
+                if transfer.data_register == cpu::PC {
+                    return 5
+                }
+                return 3
+            }
+            return 2
+        }
+
+        fn single_transfer(cpu: cpu::State, opcode: u32) -> SingleTransfer {
+            var offset = opcode & 4095
+            if bits::bit_u32(opcode, encoding::REGISTER_OFFSET) {
+                let shifted = cpu::arm_shift(cpu, opcode)
+                offset = shifted.value
+            }
+            return SingleTransfer {
+                load: bits::bit_u32(opcode, encoding::LOAD)
+                byte: bits::bit_u32(opcode, encoding::BYTE_TRANSFER)
+                preindex: bits::bit_u32(opcode, encoding::PREINDEX)
+                up: bits::bit_u32(opcode, encoding::UP)
+                writeback: bits::bit_u32(opcode, encoding::WRITEBACK)
+                base_register: usize.from(opcode >> encoding::BASE_SHIFT & encoding::REGISTER_MASK)
+                data_register: usize.from(opcode >> encoding::DESTINATION_SHIFT & encoding::REGISTER_MASK)
+                offset: offset
+            }
+        }
+
+        fn single_load(
+            emulator: write emulator::State,
+            transfer: SingleTransfer,
+            address: u32
+        ) -> void {
+            if transfer.byte {
+                let value = u32.from(bus::read8(emulator, address))
+                cpu::write_register(emulator.cpu, transfer.data_register, value)
+                return
+            }
+            let aligned = address & memory::WORD_ADDRESS_MASK
+            var value = bus::read32(emulator, aligned)
+            value = bits::rotate_right_u32(value, (address & 3) * 8)
+            cpu::write_register(emulator.cpu, transfer.data_register, value)
+            return
+        }
+
+        fn single_store(
+            emulator: write emulator::State,
+            transfer: SingleTransfer,
+            address: u32
+        ) -> void {
+            let value = cpu::store_register(emulator.cpu, transfer.data_register)
+            if transfer.byte {
+                bus::write8(emulator, address, u8.from(value & 255))
+            } else {
+                bus::write32(emulator, address, value)
+            }
+            return
+        }
+    }
+}

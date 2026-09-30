@@ -1,0 +1,53 @@
+module instruction_tests {
+    fn banks() -> Result<void, u32> {
+        var state = cpu::new()
+        let modes: [u32; 7] = [16, 17, 18, 19, 23, 27, 31]
+        for index in 0..7 {
+            cpu::switch_mode(state, modes[index])
+            state.registers[cpu::SP] = 0x02001000 + u32.from(index) * 16
+            state.registers[cpu::LR] = 0x08000001 + u32.from(index) * 16
+            state.registers[8] = u32.from(index)
+            cpu::switch_mode(state, modes[index])
+            cpu::set_spsr(state, modes[index], 0xa000003f)
+        }
+        for index in 0..7 {
+            cpu::switch_mode(state, modes[index])
+            bank_contents(state, modes[index], index)?
+        }
+        return bank_return(state)
+    }
+
+    fn bank_contents(state: cpu::State, mode: u32, index: usize) -> Result<void, u32> {
+        let bank: usize = if index == 0 {
+            6
+        } else {
+            index
+        }
+        assertions::equal(state.registers[cpu::SP], 0x02001000 + u32.from(bank) * 16, 1030)?
+        assertions::equal(state.registers[cpu::LR], 0x08000001 + u32.from(bank) * 16, 1031)?
+        assertions::equal(state.registers[8], if index == 1 {
+                1
+            } else {
+                6
+            }, 1032)?
+        let saved: u32 = if index == 0 || index == 6 {
+            0
+        } else {
+            0xa000003f
+        }
+        assertions::equal(cpu::spsr(state, mode), saved, 1033)?
+        return Ok(())
+    }
+
+    fn bank_return(state: write cpu::State) -> Result<void, u32> {
+        cpu::switch_mode(state, cpu::ABORT_MODE)
+        cpu::restore_spsr(state)
+        assertions::equal(state.cpsr, 0xa000003f, 1034)?
+        assertions::equal(state.registers[cpu::SP], 0x02001060, 1035)?
+        cpu::switch_mode(state, cpu::USER_MODE)
+        let original = state.cpsr
+        cpu::arm::write_cpsr(state, 0x500000d3, 0xffffffff)
+        assertions::equal(state.cpsr, original & 0x0fffffff | 0x50000000, 1036)?
+        return Ok(())
+    }
+}

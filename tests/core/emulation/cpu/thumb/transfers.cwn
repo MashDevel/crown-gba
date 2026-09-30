@@ -1,0 +1,37 @@
+module instruction_tests {
+    fn thumb_transfers(emulator: write emulator::State) -> Result<void, u32> {
+        let stores: [u32; 6] = [0x5088, 0x5488, 0x5288, 0x6048, 0x7048, 0x8048]
+        let loads: [u32; 6] = [0x5888, 0x5c88, 0x5a88, 0x6848, 0x7848, 0x8848]
+        let expected: [u32; 6] = [0x87654321, 0x21, 0x4321, 0x87654321, 0x21, 0x4321]
+        for index in 0..6 {
+            thumb_cpu(emulator)
+            emulator.cpu.registers[0] = 0x87654321
+            emulator.cpu.registers[1] = 0x02000400
+            emulator.cpu.registers[2] = 4
+            assertions::equal(cpu::thumb::execute_thumb(emulator, stores[index]), 3, 840)?
+            emulator.cpu.registers[0] = 0
+            assertions::equal(cpu::thumb::execute_thumb(emulator, loads[index]), 3, 841)?
+            assertions::equal(emulator.cpu.registers[0], expected[index], 842)?
+        }
+        return thumb_signed_loads(emulator)
+    }
+
+    fn thumb_signed_loads(emulator: write emulator::State) -> Result<void, u32> {
+        let opcodes: [u32; 3] = [0x5688, 0x5a88, 0x5e88]
+        let expected: [u32; 3] = [0xffffff81, 0x8081, 0xffff8081]
+        thumb_cpu(emulator)
+        emulator.cpu.registers[1] = 0x02000400
+        emulator.cpu.registers[2] = 0
+        memory::write16(emulator.memory, 0x02000400, 0x8081)
+        for index in 0..3 {
+            assertions::equal(cpu::thumb::execute_thumb(emulator, opcodes[index]), 3, 843)?
+            assertions::equal(emulator.cpu.registers[0], expected[index], 844)?
+        }
+        emulator.cpu.registers[2] = 1
+        cpu::thumb::execute_thumb(emulator, 0x5e88)
+        assertions::equal(emulator.cpu.registers[0], 0xffffff80, 845)?
+        memory::write32(emulator.memory, 0x02000208, 0xabcdef01)
+        cpu::thumb::execute_thumb(emulator, 0x4801)
+        return assertions::equal(emulator.cpu.registers[0], 0xabcdef01, 846)
+    }
+}

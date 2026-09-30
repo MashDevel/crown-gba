@@ -1,0 +1,49 @@
+fn test_host_buffers() -> u32 {
+    return match host_buffer_tests::run() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module host_buffer_tests {
+    fn run() -> Result<void, u32> {
+        var empty = host::allocate_buffer(0)
+        assertions::equal(u32.from(host::buffer_length(empty)), 0, 1080)?
+        assertions::equal(bits::bool_u32(host::buffer_is_path(empty)), 0, 1081)?
+        assertions::equal(u32.from_bits(host::unlink_host_file(empty)), 0xffffffff, 1082)?
+        unopened(host::open_buffer_file(empty, 0))?
+        unopened(host::make_temporary_file(empty))?
+        unopened(host::open_path_file("invalid\0tail", 0))?
+        return path_bytes(empty)
+    }
+
+    fn unopened(file: take Option<host::File>) -> Result<void, u32> {
+        return match move file {
+            Some(value) => {
+                value;
+                Err(1083)
+            }
+            None => Ok(())
+        }
+    }
+
+    fn path_bytes(empty: host::Buffer) -> Result<void, u32> {
+        var buffer = host::allocate_buffer(3)
+        for index in 0..3 {
+            assertions::equal(u32.from(host::buffer_get(buffer, index)), 0, 1085)?
+        }
+        assertions::equal(bits::bool_u32(host::buffer_is_path(buffer)), 0, 1086)?
+        host::buffer_set(buffer, 0, 97)
+        host::buffer_set(buffer, 1, 98)
+        assertions::equal(bits::bool_u32(host::buffer_is_path(buffer)), 1, 1087)?
+        assertions::equal(u32.from_bits(host::rename_host_file(empty, buffer)), 0xffffffff, 1088)?
+        assertions::equal(u32.from_bits(host::rename_host_file(buffer, empty)), 0xffffffff, 1089)?
+        host::buffer_set(buffer, 2, 99)
+        assertions::equal(bits::bool_u32(host::buffer_is_path(buffer)), 0, 1090)?
+        assertions::equal(bits::bool_u32(host::write_standard_error(buffer, 4)), 0, 1091)?
+        return Ok(())
+    }
+}

@@ -107,6 +107,10 @@ fn test_bitmap_affine(emulator: write emulator::State) -> u32 {
 }
 
 fn test_ppu_controls(emulator: write emulator::State) -> u32 {
+    let boundaries = test_text_boundaries(emulator)
+    if boundaries != 0 {
+        return boundaries
+    }
     memory::io_store16(emulator.memory, 0, 128)
     video::render_line(emulator)
     if emulator.ppu.framebuffer[0] != 16777215 {
@@ -147,6 +151,14 @@ fn test_ppu_controls(emulator: write emulator::State) -> u32 {
 }
 
 fn test_ppu_effects() -> u32 {
+    let bitmap = test_bitmap_boundaries()
+    if bitmap != 0 {
+        return bitmap
+    }
+    let affine = test_affine_boundaries()
+    if affine != 0 {
+        return affine
+    }
     if video::alpha_color(16711680, 255, 2056) != 8061051 {
         return 49
     }
@@ -156,7 +168,7 @@ fn test_ppu_effects() -> u32 {
     if video::brightness_color(16777215, 8, false) != 8618883 {
         return 51
     }
-    return 0
+    return test_color_effect_edges()
 }
 
 fn test_ppu_render_suppression(emulator: write emulator::State) -> u32 {
@@ -246,7 +258,7 @@ fn test_object_affine() -> u32 {
     if pixel.color != 16711680 {
         return 60
     }
-    return 0
+    return test_object_attributes()
 }
 
 fn test_object_budget() -> u32 {

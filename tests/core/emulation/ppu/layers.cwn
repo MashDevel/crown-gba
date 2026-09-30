@@ -1,0 +1,34 @@
+module text_tests {
+    fn layers(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.ppu = video::new()
+        let pixel = video::LayerPixel {
+            visible: true, color: 0x123456, priority: 0, order: 1, layer: 0, semi: true
+        }
+        video::commit_pixel(emulator.ppu, video::PixelPosition {
+                index: 0, x: 240
+            }, pixel)
+        video::store_top_pixel(emulator.ppu, video::PixelPosition {
+                index: 0, x: 240
+            }, pixel)
+        video::store_top_pixel(emulator.ppu, video::PixelPosition {
+                index: video::PIXELS, x: 0
+            }, pixel)
+        assertions::equal(emulator.ppu.framebuffer[0], 0, 1560)?
+        video::store_top_pixel(emulator.ppu, video::PixelPosition {
+                index: 0, x: 0
+            }, pixel)
+        assertions::equal(emulator.ppu.framebuffer[0], 0x123456, 1561)?
+        assertions::equal(u32.from(emulator.ppu.semi[0]), 1, 1562)?
+        assertions::equal(bits::bool_u32(video::pixel_above(3, 0, [2, 0])), 0, 1563)?
+        video::render_background_mode(emulator, 0, 1)
+        video::render_background_mode(emulator, 0, 6)
+        video::render_bitmap(emulator, video::BitmapLine {
+                line: 0, mode: 3, control: 0
+            })
+        memory::io_store16(emulator.memory, video::CONTROL, 6)
+        memory::io_store16(emulator.memory, video::GREEN_SWAP, 1)
+        emulator.devices.vcount = 0
+        video::render_line(emulator)
+        return assertions::equal(emulator.ppu.framebuffer[0], emulator.memory.palette_colors[0], 1564)
+    }
+}

@@ -1,0 +1,32 @@
+module assertions {
+    fn equal(actual: u32, expected: u32, code: u32) -> Result<void, u32> {
+        if actual != expected {
+            report(u64.from(actual), u64.from(expected), code)
+            return Err(code)
+        }
+        return Ok(())
+    }
+
+    fn equal64(actual: u64, expected: u64, code: u32) -> Result<void, u32> {
+        if actual != expected {
+            report(actual, expected, code)
+            return Err(code)
+        }
+        return Ok(())
+    }
+
+    fn report(actual: u64, expected: u64, code: u32) -> void {
+        let prefix = std::text::joined("assertion ", std::text::decimal(u64.from(code)))
+        let wanted = std::text::joined(" expected ", std::text::decimal(expected))
+        let found = std::text::joined(" found ", std::text::decimal(actual))
+        let message = std::text::joined(std::text::joined(prefix, wanted), std::text::joined(found, "\n"))
+        var buffer = host::allocate_buffer(message.length())
+        loan read message as bytes {
+            for index in 0..bytes.length() {
+                host::buffer_set(buffer, index, bytes[index])
+            }
+        }
+        host::write_standard_error(buffer, message.length())
+    }
+
+}

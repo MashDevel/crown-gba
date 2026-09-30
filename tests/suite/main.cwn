@@ -48,6 +48,7 @@ module gba_tests {
         run_validation(context)?
         run_core(context)?
         run_cli(context)?
+        run_file_errors(context)?
         run_native(context)?
         return Ok(())
     }

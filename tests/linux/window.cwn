@@ -1,0 +1,79 @@
+module linux_tests {
+    fn presentation(window: write platform::Window) -> Result<void, u32> {
+        var pixels = Vec<u32>.new()
+        assertions::equal(platform::present_frame(window, pixels), 86, 3)?
+        for index in 0..usize.from(video::WIDTH * video::HEIGHT) {
+            pixels.push(u32.from(index))
+        }
+        assertions::equal(platform::present_frame(window, pixels), 0, 4)?
+        unsafe {
+            assertions::equal(window.pixels.offset(2).read(), 0, 5)?
+            assertions::equal(window.pixels.offset(3).read(), 1, 6)?
+            assertions::equal(window.pixels.offset(720).read(), 0, 7)?
+            window.width = 480
+            window.height = 320
+        }
+        assertions::equal(platform::present_frame(window, pixels), 0, 8)?
+        unsafe {
+            assertions::equal(window.pixels.offset(2).read(), 1, 9)?
+        }
+        return Ok(())
+    }
+
+    fn event(kind: u64) -> Vec<u64> {
+        var output = Vec<u64>.new()
+        for index in 0..24 {
+            index;
+            output.push(0)
+        }
+        output[0] = kind
+        return move output
+    }
+
+    fn window_events(window: write platform::Window) -> Result<void, u32> {
+        unsafe {
+            window.keyboard = 1023
+            platform::handle_event(window, event(10))
+            assertions::equal(window.keyboard, 0, 10)?
+            var resized = event(22)
+            resized[7] = (u64.from(160) << 32) | 240
+            platform::handle_event(window, resized)
+            assertions::equal(window.width, 240, 11)?
+            assertions::equal(window.height, 160, 12)?
+            resized[7] = (u64.from(160) << 32) | 239
+            platform::handle_event(window, resized)
+            assertions::equal(window.width, 240, 13)?
+            resized[7] = (u64.from(4097) << 32) | 480
+            platform::handle_event(window, resized)
+            assertions::equal(window.height, 160, 14)?
+        }
+        return Ok(())
+    }
+
+    fn close_window(window: write platform::Window) -> Result<void, u32> {
+        unsafe {
+            let symbols = std::text::split("XSendEvent|XSync", 124)
+            let library = match std::dylib::open("libX11.so.6", symbols) {
+                Ok(value) => move value
+                Err(error) => {
+                    error;
+                    return Err(15)
+                }
+            }
+            let send = RawPtr<fn(read RawPtr<u8>, read u64, read i32, read i64, read RawPtr<u8>) -> i32>.cast(std::dylib::slot(library, 0)).read()
+            let sync = RawPtr<fn(read RawPtr<u8>, read i32) -> i32>.cast(std::dylib::slot(library, 1)).read()
+            var message = event(33)
+            message[4] = window.window
+            message[5] = native::x11::intern_atom(window.library, window.display, "WM_PROTOCOLS\0".as_raw(), 0)
+            message[6] = 32
+            message[7] = window.delete_atom
+            assertions::equal(u32.from(send(window.display, window.window, 0, 0, RawPtr<u8>.cast(message.as_raw()))), 1, 16)?
+            sync(window.display, 0)
+            platform::poll_window(window)
+        }
+        if platform::window_running(window) {
+            return Err(17)
+        }
+        return Ok(())
+    }
+}

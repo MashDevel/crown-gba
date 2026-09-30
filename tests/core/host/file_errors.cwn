@@ -1,0 +1,103 @@
+fn test_file_errors(path: TextView, memory: write memory::State) -> u32 {
+    return match file_error_tests::run(path, memory) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module file_error_tests {
+    fn run(path: TextView, memory: write memory::State) -> Result<void, u32> {
+        let buffer = host::allocate_buffer(1)
+        let written = host::write_buffer_file(path, buffer)
+        match written {
+            Ok(value) => {
+                value;
+            }
+            Err(error) => {
+                error;
+                return Err(1660)
+            }
+        }
+        memory.save_kind = backup::Kind::Sram()
+        let invalid = match host::open_path_file(path, 0) {
+            Some(value) => move value
+            None => {
+                return Err(1661)
+            }
+        }
+        assertions::equal(backup::load_backup_descriptor(move invalid, memory), 71, 1661)?
+        read_errors(path)?
+        closed(path, memory)?
+        return screenshot_errors()
+    }
+
+    fn read_errors(path: TextView) -> Result<void, u32> {
+        var file = match host::open_path_file(path, 0) {
+            Some(value) => move value
+            None => {
+                return Err(1662)
+            }
+        }
+        var data = host::allocate_buffer(2)
+        assertions::equal(bits::bool_u32(host::read_host_file(file, data, 3)), 0, 1663)?
+        assertions::equal(bits::bool_u32(host::read_host_file(file, data, 2)), 0, 1664)?
+        assertions::equal(bits::bool_u32(host::write_host_buffer(file, data, 3)), 0, 1665)?
+        assertions::equal(backup::write_backup_descriptor(file, data), 75, 1666)?
+        assertions::equal(u32.from_bits(host::close_host_file(file)), 0, 1667)?
+        return Ok(())
+    }
+
+    fn closed(path: TextView, memory: write memory::State) -> Result<void, u32> {
+        var file = match host::open_path_file(path, 0) {
+            Some(value) => move value
+            None => {
+                return Err(1668)
+            }
+        }
+        host::close_host_file(file)
+        closed_operations(file)?
+        assertions::equal(backup::load_backup_descriptor(move file, memory), 70, 1669)?
+        let empty = host::allocate_buffer(0)
+        match host::write_buffer_file(path, empty) {
+            Ok(value) => {
+                value;
+            }
+            Err(error) => {
+                error;
+                return Err(1670)
+            }
+        }
+        let image = cartridge::load(path)
+        let code = match move image {
+            Ok(value) => {
+                value;
+                0
+            }
+            Err(code) => code
+        }
+        assertions::equal(code, 11, 1671)?
+        assertions::equal(bios::load(path, memory), 21, 1672)?
+        bios::copy_from_host(memory, empty)
+        return assertions::equal(bits::bool_u32(memory.bios_loaded), 0, 1673)
+    }
+
+    fn screenshot_errors() -> Result<void, u32> {
+        assertions::equal(screenshot::bmp_file_error(std::io::Error::Open()), 61, 1674)?
+        assertions::equal(screenshot::bmp_file_error(std::io::Error::InvalidPath()), 61, 1675)?
+        assertions::equal(screenshot::bmp_file_error(std::io::Error::Close()), 63, 1676)?
+        assertions::equal(screenshot::bmp_file_error(std::io::Error::Write()), 62, 1677)?
+        let empty = host::allocate_buffer(0)
+        return assertions::equal(screenshot::write_bmp_file("invalid\0path", empty), 61, 1678)
+    }
+
+    fn closed_operations(file: host::File) -> Result<void, u32> {
+        var buffer = host::allocate_buffer(1)
+        assertions::equal(bits::bool_u32(host::read_host_file(file, buffer, 1)), 0, 1820)?
+        assertions::equal(bits::bool_u32(host::write_host_buffer(file, buffer, 1)), 0, 1821)?
+        assertions::equal(u32.from_bits(host::sync_host_file(file)), 0xffffffff, 1822)?
+        return assertions::equal64(u64.from_bits(host::seek_host_file(file, 0, 0)), 0xffffffffffffffff, 1823)
+    }
+}

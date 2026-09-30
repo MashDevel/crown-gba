@@ -1,6 +1,10 @@
 module gba_tests {
     fn run_native(context: write Context) -> Result<void, Text> {
-        context;
-        return Ok(())
+        if selected(context, "native_linux") == false {
+            return Ok(())
+        }
+        let root = toolchain::path_join(context.root, "tests/linux")
+        build_project(context, root, "linux")?
+        return check_program(context, "native_linux", project_binary(root, "gba_linux_tests"), 0, "@rom")
     }
 }

@@ -26,7 +26,7 @@ git clone https://github.com/MashDevel/crown-gba.git gba
 cd gba
 ```
 
-This revision requires Crown’s [Windows subsystem support](https://github.com/MashDevel/crown-lang/commit/3dd86f068a85cbde3a240034f09124e5b1bea4a6), including when building on macOS or Linux. If your binary release predates that change, use it to build the current compiler checkout first. In Windows PowerShell, from a directory alongside `gba`:
+This revision requires Crown’s [Windows subsystem support](https://github.com/MashDevel/crown-lang/commit/3dd86f068a85cbde3a240034f09124e5b1bea4a6) and, for Linux audio, its [PipeWire loop-control correction](https://github.com/MashDevel/crown-lang/commit/a1da3ed71e76de7bffeb0101e94af389c96cafff). If your binary release predates that change, use it to build the current compiler checkout first. In Windows PowerShell, from a directory alongside `gba`:
 
 ```powershell
 git clone https://github.com/MashDevel/crown-lang.git lang
@@ -81,13 +81,13 @@ Only one execution mode may be selected. `--screenshot` writes the last frame as
 crown test . --filter headless
 ```
 
-The project test suite builds the emulator, runs CPU and frame fixtures, checks screenshots, Unicode save paths, and command-line failures, and verifies the macOS clock binding. Windows also creates a native window, checks framebuffer colors and keyboard events, exercises audio queueing, loads XInput, and verifies normal window close. On a logged-in macOS desktop, run `crown test .` to include the native Metal drawable memory check. Crown's `check .` type-checks the emulator; `test .` executes its project tests. For manual playback QA, play Circuit Breaker for at least 30 seconds and check movement, sprites, sound, and normal window close. Repeat with another cartridge and confirm save persistence if it uses backup memory.
+The project test suite builds the emulator, runs CPU and frame fixtures, checks ARM and Thumb arithmetic, carry and overflow boundaries, audio channel and register behavior, screenshots, Unicode save paths, and command-line failures, and verifies the macOS clock binding. Windows also creates a native window, checks framebuffer colors and keyboard events, exercises audio queueing, loads XInput, and verifies normal window close. On a logged-in macOS desktop, run `crown test .` to include the native Metal drawable memory check. Crown's `check .` type-checks the emulator; `test .` executes its project tests. For manual playback QA, play Circuit Breaker for at least 30 seconds and check movement, sprites, sound, and normal window close. Repeat with another cartridge and confirm save persistence if it uses backup memory.
 
 The ROM in `roms/` matches the build from the separate, original `projects/circuit-breaker` workspace project (SHA-256 `d27c606729141ca009bcfb51e37acc061775163c6c248342ee1acf3d582b0f57`). The small ROMs in `tests/fixtures` are generated from the adjacent assembly fixtures.
 
 ## Quality checks
 
-The [Test workflow](.github/workflows/test.yml) runs on every push, pull request, manual dispatch, and weekly schedule. It checks x86-64 and ARM64 Windows, Linux, and macOS using the Crown revision pinned in the workflow. It checks formatting, types, structural limits, duplication, functional tests, and coverage. The workflow keeps running independent checks after a failure and uploads reports and test diagnostics for each host.
+The [Test workflow](.github/workflows/test.yml) runs on pushes to `main`, pull requests, manual dispatches, and a weekly schedule. New commits cancel superseded runs for the same branch or pull request. It checks x86-64 and ARM64 Windows, Linux, and macOS using the Crown revision pinned in the workflow. It checks formatting, types, structural limits, duplication, functional tests, and coverage. The workflow keeps running independent checks after a failure and uploads reports and test diagnostics for each host.
 
 `Crown.toml` sets the same structural and formatting limits as Crown: 300 code lines per file, 60 per function, cyclomatic complexity 10, cognitive complexity 15, nesting depth 4, and 5 parameters. Duplication must stay at or below 3%. Both line and branch coverage must reach 95% in every reported source package; a workspace average cannot satisfy the gate.
 
@@ -101,17 +101,17 @@ crown lint tests --output target/quality/suite.json
 crown lint tests/core --output target/quality/core.json
 crown lint tests/validation --output target/quality/validation.json
 crown duplication /path/to/workspace --output target/quality/duplication.json
-crown test . --filter headless --coverage target/quality/coverage
+crown test . --coverage target/quality/coverage
 crown coverage target/quality/coverage --output target/quality/coverage.json
 ```
 
-On Windows, also run `crown lint tests/windows --output target/quality/windows.json` for the native API tests.
+On Windows, also lint `tests/windows`, `tests/windows_gui`, and `tests/windows_playback` for the native API, GUI-subsystem, and worker-playback checks. On Linux, also lint `tests/linux` for X11 presentation, window events, and PipeWire playback checks.
 
 Lint each project separately because the app and test executables have different entry points and source sets. The duplication command must receive the root of your full workspace so it scans source and tests as one corpus. The CI workspace contains both GBA and its Crown toolchain checkout.
 
-CI uses the documented headless suite because hosted runners have no interactive desktop. On a logged-in macOS desktop, omit `--filter headless` to include the native Metal drawable check. For release QA, run all quality commands, inspect every host's reports, and perform the playback and save-persistence checks above. A failed lint or coverage command must remain a failed check.
+CI runs the full project suite, including the native Metal drawable check on macOS and native window, audio, and playback checks on Windows. Use `--filter headless` locally when a macOS desktop session is unavailable. For release QA, run all quality commands, inspect every host's reports, and perform the playback and save-persistence checks above. A failed lint or coverage command must remain a failed check.
 
-The initial release has existing structural and coverage failures. The macOS baseline has three files over the line limit and four functions over the cognitive complexity limit. Its full functional suite passes 24 checks, while GBA coverage is 82.19% of lines and 69.09% of branches. Those initial measurements compiled libraries as application sources; the current dependency model measures each project's owned sources. Formatting passes and GBA's source-and-test duplication is 1.01%, which is a project measurement rather than the required workspace result. These figures describe the initial baseline; CI reports contain the current measurements. Thresholds are enforced without waivers, so the quality workflow remains failing until the outstanding gaps are fixed.
+Coverage is still below the 95% line-and-branch requirement, so the workflow remains failing at that step. Reports contain the measurements for each host. Linux CI installs Xvfb and PipeWire, including its packaged WirePlumber session manager, and runs native presentation, resize, close-event, emulator playback, and audio-drain checks against an isolated display and stereo sink. With those packages installed locally, `dbus-run-session -- bash tests/ci/linux-desktop crown test .` reproduces that environment. For manual Linux QA, also check audible output, keyboard and physical controller input, resizing, and normal close on a real desktop.
 
 ## Windows
 
@@ -125,7 +125,7 @@ For Windows playback QA, play Circuit Breaker for at least 30 seconds on each ar
 
 ## Linux and Steam Deck
 
-On a supported x86-64 glibc Linux host with X11 and PipeWire, `crown run` uses the Linux frontend. The Steam Deck also reads its controller and left stick. Linux audio is resampled to 48 kHz and the frontend may skip video frames to recover from audio starvation.
+On a supported x86-64 or ARM64 glibc Linux host with X11 and PipeWire, `crown run` uses the Linux frontend. The Steam Deck also reads its controller and left stick. Linux audio is resampled to 48 kHz and the frontend may skip video frames to recover from audio starvation.
 
 To cross-compile Linux assembly on macOS and link it on the Deck:
 

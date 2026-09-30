@@ -1,0 +1,39 @@
+module driver_tests {
+    fn dispatch_edges(emulator: write emulator::State) -> Result<void, u32> {
+        assertions::equal(bits::bool_u32(bios::handle_sound_swi(emulator, 0)), 0, 1720)?
+        assertions::equal(bits::bool_u32(bios::handle_sound_swi(emulator, 0x100)), 0, 1721)?
+        assertions::equal(bits::bool_u32(bios::sound::area_active(emulator, 0)), 0, 1722)?
+        memory::write32(emulator.memory, AREA, bios::sound::DRIVER_READY)
+        assertions::equal(bits::bool_u32(bios::sound::area_active(emulator, AREA)), 1, 1723)?
+        memory::write32(emulator.memory, bios::sound::WORK_AREA_POINTER, 0)
+        let pc = emulator.cpu.registers[cpu::PC]
+        bios::sound::jump_call(emulator, 0)
+        assertions::equal(emulator.cpu.registers[cpu::PC], pc, 1724)?
+        memory::write32(emulator.memory, bios::sound::WORK_AREA_POINTER, AREA)
+        memory::write32(emulator.memory, AREA + 52, 0)
+        bios::sound::jump_call(emulator, 0)
+        assertions::equal(emulator.cpu.registers[cpu::PC], pc, 1725)?
+        emulator.cpu.registers[0] = AREA
+        emulator.cpu.registers[1] = 200
+        emulator.cpu.registers[2] = 0
+        memory::write32(emulator.memory, AREA + 4, 0)
+        bios::sound::midi_key_to_frequency(emulator)
+        return assertions::equal(emulator.cpu.registers[0], 0, 1726)
+    }
+}
+
+module player_tests {
+    fn track_chain(emulator: write emulator::State) -> Result<void, u32> {
+        let channels: u32 = 0x02008000
+        for index in 0..65 {
+            let channel = channels + u32.from(index) * 64
+            memory::write8(emulator.memory, channel, 1)
+            memory::write32(emulator.memory, channel + 52, channel + 64)
+        }
+        memory::write32(emulator.memory, TRACKS + 32, channels)
+        bios::music_stop_track(emulator, TRACKS)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, channels + 63 * 64)), 0, 1727)?
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, channels + 64 * 64)), 1, 1728)?
+        return assertions::equal(memory::read32(emulator.memory, emulator.cartridge, TRACKS + 32), 0, 1729)
+    }
+}

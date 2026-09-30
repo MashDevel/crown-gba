@@ -1,0 +1,40 @@
+fn test_device_edges(emulator: write emulator::State) -> u32 {
+    let result = device_tests::run(emulator)
+    bios::hard_reset(emulator)
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module device_tests {
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        bios::hard_reset(emulator)
+        assertions::equal(devices::enter_irq(emulator), 0, 1800)?
+        keypad::write_control(emulator.memory, 0x4001)
+        keypad::set_pressed(emulator.memory, 1)
+        emulator.cpu.halted = true
+        devices::step_halted(emulator)
+        assertions::equal(u32.from(memory::io_read16(emulator.memory, system::INTERRUPT_FLAGS) & 0x1000), 0x1000, 1801)?
+        keypad::set_pressed(emulator.memory, 0)
+        emulator.cpu.halted = true
+        emulator.dma_cycles_pending = 1
+        assertions::equal(devices::step_halted(emulator), 2, 1802)?
+        emulator.devices.dma_timing[0] = 1
+        memory::io_store16(emulator.memory, dma::BASE + dma::COUNT, 1)
+        memory::io_store16(emulator.memory, dma::BASE + dma::CONTROL, 0)
+        devices::step_halted(emulator)
+        assertions::equal(u32.from(emulator.devices.dma_timing[0]), 0, 1803)?
+        video::advance_video(emulator, 0)
+        emulator.devices.vcount = 0
+        memory::io_store16(emulator.memory, video::STATUS, video::VCOUNTER)
+        video::update_vcounter(emulator)
+        assertions::equal(u32.from(memory::io_read16(emulator.memory, video::STATUS)), u32.from(video::VCOUNTER), 1804)?
+        emulator.audio.pulse2.control.enabled = true
+        audio::update_status(emulator)
+        return assertions::equal(u32.from(audio::read16(emulator.audio, audio::MASTER_CONTROL) & 2), 2, 1805)
+    }
+}

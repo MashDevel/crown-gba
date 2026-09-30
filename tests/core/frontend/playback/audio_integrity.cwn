@@ -1,4 +1,8 @@
 fn test_audio_integrity(emulator: write emulator::State) -> u32 {
+    let edges = test_resample_edges()
+    if edges != 0 {
+        return edges
+    }
     let rates = test_gba_output_rates()
     if rates != 0 {
         return rates

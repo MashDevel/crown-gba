@@ -1,0 +1,64 @@
+module text_tests {
+    fn objects(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.ppu = video::new()
+        for index in 0..128 {
+            memory::write16(emulator.memory, memory::OAM_START + u32.from(index * 8), 0x200)
+        }
+        for index in 0..32 {
+            emulator.memory.vram[video::OBJECT_VRAM + index] = 0x11
+        }
+        memory::write16(emulator.memory, memory::PALETTE_START + 514, 31)
+        memory::write16(emulator.memory, memory::OAM_START, 0)
+        memory::write16(emulator.memory, memory::OAM_START + 2, 508)
+        video::prepare_line(emulator.ppu, 0, 0)
+        video::prepare_windows(emulator, 0, video::OBJECT_ENABLE)
+        let render = video::ObjectRender {
+            object: 0, line: 0, control: video::OBJECT_ENABLE
+        }
+        video::render_object(emulator, render)
+        assertions::equal(emulator.ppu.framebuffer[0], 0xff0000, 1580)?
+        assertions::equal(emulator.ppu.framebuffer[4], 0, 1581)?
+        memory::write16(emulator.memory, memory::OAM_START + 2, 238)
+        video::render_object(emulator, render)
+        assertions::equal(emulator.ppu.framebuffer[239], 0xff0000, 1582)?
+        video::render_object(emulator, video::ObjectRender {
+                object: 0, line: 10, control: video::OBJECT_ENABLE
+            })
+        assertions::equal(emulator.ppu.framebuffer[2400], 0, 1583)?
+        windows(emulator)?
+        return budget(emulator)
+    }
+
+    fn windows(emulator: write emulator::State) -> Result<void, u32> {
+        memory::write16(emulator.memory, memory::OAM_START, 0x800)
+        memory::io_store16(emulator.memory, video::WINDOW_OUTSIDE, 0x0401)
+        let control = video::OBJECT_ENABLE | video::OBJECT_WINDOW_ENABLE
+        let render = video::ObjectRender {
+            object: 0, line: 0, control: control
+        }
+        memory::write16(emulator.memory, memory::OAM_START + 2, 508)
+        video::prepare_windows(emulator, 0, control)
+        video::render_object_window(emulator, render)
+        assertions::equal(u32.from(emulator.ppu.window_layers[0]), 4, 1584)?
+        memory::write16(emulator.memory, memory::OAM_START + 2, 238)
+        video::render_object_window(emulator, render)
+        assertions::equal(u32.from(emulator.ppu.window_layers[239]), 4, 1585)?
+        video::prepare_windows(emulator, 10, control)
+        video::render_object_windows(emulator, 10, control)
+        return assertions::equal(u32.from(emulator.ppu.window_layers[0]), 1, 1586)
+    }
+
+    fn budget(emulator: write emulator::State) -> Result<void, u32> {
+        memory::write16(emulator.memory, memory::OAM_START, video::OBJECT_AFFINE)
+        memory::write16(emulator.memory, memory::OAM_START + 2, 0)
+        var budget = video::object_budget(0, video::OBJECT_ENABLE)
+        assertions::equal(bits::bool_u32(video::object_charge(emulator.memory, budget, 0)), 1, 1587)?
+        assertions::equal(u32.from(budget.remaining), 1200, 1588)?
+        for index in 0..128 {
+            memory::write16(emulator.memory, memory::OAM_START + u32.from(index * 8), 0)
+            memory::write16(emulator.memory, memory::OAM_START + u32.from(index * 8 + 2), 0)
+        }
+        video::render_objects(emulator, 0, video::OBJECT_ENABLE | video::HBLANK_OBJECT_ACCESS)
+        return assertions::equal(u32.from(video::object_budget_limit(emulator.memory, 0, video::OBJECT_ENABLE | video::HBLANK_OBJECT_ACCESS)), 119, 1589)
+    }
+}

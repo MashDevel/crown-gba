@@ -1,0 +1,24 @@
+module instruction_tests {
+    fn decoder_edges(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.cpu = cpu::new()
+        let unknown = emulator.unknown_instructions
+        cpu::arm::execute_arm(emulator, 0xec000000)
+        cpu::thumb::execute_thumb(emulator, 0xb200)
+        cpu::thumb::execute_thumb(emulator, 0xe800)
+        assertions::equal(emulator.unknown_instructions, unknown + 3, 1760)?
+        emulator.cpu.registers[0] = 4
+        cpu::thumb::execute_thumb(emulator, 0x0041)
+        assertions::equal(emulator.cpu.registers[1], 8, 1761)?
+        cpu::thumb::execute_thumb(emulator, 0xdf08)
+        assertions::equal(emulator.cpu.registers[0], 2, 1762)?
+        let ignored = cpu::arm::logical_outcome(0, false, false)
+        cpu::thumb::apply_outcome(emulator.cpu, 0, ignored)
+        assertions::equal(emulator.cpu.registers[0], 2, 1763)?
+        assertions::equal(bits::u32(0x12345678, 8, 32), 0x123456, 1764)?
+        assertions::equal(bits::u32(0x12345678, 8, 8), 0x56, 1765)?
+        emulator.cpu.registers[cpu::PC] = 0x02004000
+        assertions::equal(cpu::store_register(emulator.cpu, cpu::PC), 0x02004008, 1766)?
+        emulator.unknown_instructions = unknown
+        return Ok(())
+    }
+}

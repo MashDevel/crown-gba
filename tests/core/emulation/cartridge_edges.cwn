@@ -1,0 +1,30 @@
+fn test_cartridge_edges() -> u32 {
+    return match cartridge_tests::edges() {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module cartridge_tests {
+    fn edges() -> Result<void, u32> {
+        var bytes = host::allocate_buffer(4)
+        for index in 0..4 {
+            host::buffer_set(bytes, index, u8.from(index + 1))
+        }
+        let expected: [u32; 4] = [1, 0x201, 0x030201, 0x04030201]
+        for length in 1..5 {
+            let words = cartridge::words(bytes, length)
+            assertions::equal(words[0], expected[length - 1], 1460)?
+        }
+        let one = test_signature_cartridge("A")
+        assertions::equal(u32.from(cartridge::read16(one, 0x08000000)), 0x4141, 1461)?
+        assertions::equal(cartridge::read32(one, 0x08000000), 0x41414141, 1462)?
+        let two = test_signature_cartridge("AB")
+        assertions::equal(u32.from(cartridge::read16(two, 0x08000000)), 0x4241, 1463)?
+        assertions::equal(cartridge::read32(two, 0x08000000), 0x42414241, 1464)?
+        return Ok(())
+    }
+}

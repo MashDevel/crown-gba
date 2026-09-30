@@ -7,7 +7,11 @@ fn test_audio_buffer() -> u32 {
     if clock != 0 {
         return clock
     }
-    test_audio_underrun_playback()
+    let underrun = test_audio_underrun_playback()
+    if underrun != 0 {
+        return underrun
+    }
+    return test_audio_clock_boundaries()
 }
 
 fn test_audio_queue_startup() -> u32 {

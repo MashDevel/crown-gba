@@ -1,0 +1,49 @@
+fn test_text_boundaries(emulator: write emulator::State) -> u32 {
+    return match text_tests::run(emulator) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module text_tests {
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        var memory = memory::new()
+        let masks: [u32; 4] = [255, 511, 255, 511]
+        let rows: [u32; 4] = [0, 0, 32, 32]
+        let blocks: [u32; 4] = [1, 1, 2, 3]
+        for size in 0..4 {
+            memory::io_store16(memory, video::BACKGROUND_CONTROL, u16.from(size) << 14)
+            var line = video::text_line(memory, 0, 256)
+            assertions::equal(u32.from(line.width_mask), masks[size], 1360)?
+            assertions::equal(u32.from(line.tile_y), rows[size], 1361)?
+            memory::write16(memory, memory::VRAM_START + blocks[size] * 2048, 0x1234)
+            assertions::equal(u32.from(video::text_entry(memory, line, 32)), 0x1234, 1362)?
+        }
+        flipped(memory)?
+        memory::io_store16(emulator.memory, video::BACKGROUND_CONTROL, video::BACKGROUND_MOSAIC | 0x100)
+        memory::io_store16(emulator.memory, video::MOSAIC, 6)
+        memory::io_store16(emulator.memory, video::BACKGROUND_SCROLL, 0)
+        memory::io_store16(emulator.memory, video::BACKGROUND_SCROLL + 2, 0)
+        emulator.ppu = video::new()
+        emulator.ppu.framebuffer[240] = 0x123456
+        var line = video::text_line(emulator.memory, 0, 0)
+        video::render_text_line(emulator, line, 0)
+        assertions::equal(emulator.ppu.framebuffer[240], 0x123456, 1363)?
+        layers(emulator)?
+        return objects(emulator)
+    }
+
+    fn flipped(memory: write memory::State) -> Result<void, u32> {
+        memory::io_store16(memory, video::BACKGROUND_CONTROL, 0x180)
+        memory::write16(memory, memory::VRAM_START + 2048, 0xc00)
+        memory.vram[63] = 1
+        memory::write16(memory, memory::PALETTE_START + 2, 31)
+        var line = video::text_line(memory, 0, 0)
+        let pixel = video::text_pixel(memory, line, 0)
+        assertions::equal(pixel.color, 0xff0000, 1364)?
+        return assertions::equal(bits::bool_u32(pixel.visible), 1, 1365)
+    }
+}

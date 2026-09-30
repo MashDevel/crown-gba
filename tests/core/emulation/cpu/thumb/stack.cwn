@@ -1,0 +1,40 @@
+module instruction_tests {
+    fn thumb_stack(emulator: write emulator::State) -> Result<void, u32> {
+        thumb_cpu(emulator)
+        emulator.cpu.registers[0] = 0x12345678
+        assertions::equal(cpu::thumb::execute_thumb(emulator, 0x9001), 3, 850)?
+        assertions::equal(cpu::thumb::execute_thumb(emulator, 0x9901), 3, 851)?
+        assertions::equal(emulator.cpu.registers[1], 0x12345678, 852)?
+        cpu::thumb::execute_thumb(emulator, 0xb004)
+        assertions::equal(emulator.cpu.registers[cpu::SP], 0x02001010, 853)?
+        cpu::thumb::execute_thumb(emulator, 0xb084)
+        assertions::equal(emulator.cpu.registers[cpu::SP], 0x02001000, 854)?
+        cpu::thumb::execute_thumb(emulator, 0xa801)
+        assertions::equal(emulator.cpu.registers[0], 0x02001004, 855)?
+        cpu::thumb::execute_thumb(emulator, 0xa001)
+        assertions::equal(emulator.cpu.registers[0], 0x02000208, 856)?
+        for extra in 0..2 {
+            thumb_push_pop(emulator, u32.from(extra))?
+        }
+        return Ok(())
+    }
+
+    fn thumb_push_pop(emulator: write emulator::State, extra: u32) -> Result<void, u32> {
+        thumb_cpu(emulator)
+        emulator.cpu.registers[0] = 10
+        emulator.cpu.registers[2] = 20
+        emulator.cpu.registers[cpu::LR] = 0x02000301
+        assertions::equal(cpu::thumb::execute_thumb(emulator, 0xb405 | extra << 8), 3 + extra, 857)?
+        assertions::equal(emulator.cpu.registers[cpu::SP], 0x02000ff8 - extra * 4, 858)?
+        emulator.cpu.registers[0] = 0
+        emulator.cpu.registers[2] = 0
+        assertions::equal(cpu::thumb::execute_thumb(emulator, 0xbc05 | extra << 8), 3 + extra * 2, 859)?
+        assertions::equal(emulator.cpu.registers[0], 10, 860)?
+        assertions::equal(emulator.cpu.registers[2], 20, 861)?
+        assertions::equal(emulator.cpu.registers[cpu::SP], 0x02001000, 862)?
+        if extra != 0 {
+            assertions::equal(emulator.cpu.registers[cpu::PC], 0x02000300, 863)?
+        }
+        return Ok(())
+    }
+}

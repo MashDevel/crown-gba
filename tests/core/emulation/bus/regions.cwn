@@ -1,0 +1,75 @@
+fn test_memory_regions(emulator: write emulator::State) -> u32 {
+    bios::hard_reset(emulator)
+    let result = memory_tests::regions(emulator)
+    bios::hard_reset(emulator)
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module memory_tests {
+    fn regions(emulator: write emulator::State) -> Result<void, u32> {
+        let regions: [u32; 5] = [0x02000000, 0x03000000, 0x05000000, 0x06000000, 0x07000000]
+        for index in 0..5 {
+            let address = regions[index] + 0x100
+            memory::write32(emulator.memory, address, 0x12345678)
+            assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, address)), 0x78, 1150)?
+            assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, address + 3)), 0x12, 1151)?
+            assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, address + 1)), 0x5678, 1152)?
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, address + 3), 0x12345678, 1153)?
+        }
+        raw_bounds(emulator)?
+        timers(emulator)?
+        mapped_bytes(emulator)?
+        return edges(emulator)
+    }
+
+    fn raw_bounds(emulator: write emulator::State) -> Result<void, u32> {
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, 0xff000000)), 0, 1154)?
+        assertions::equal(u32.from(memory::read16(emulator.memory, emulator.cartridge, 0xff000000)), 0, 1155)?
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, 0xff000000), 0, 1156)?
+        let bytes = std::bytes::filled(3, 0xab)
+        assertions::equal(u32.from(memory::vector_read16(bytes, 2)), 0, 1157)?
+        assertions::equal(u32.from(memory::vector_read16(bytes, 3)), 0, 1158)?
+        assertions::equal(memory::vector_read32(bytes, 0), 0, 1159)?
+        assertions::equal(memory::vector_read32(bytes, 3), 0, 1160)?
+        return Ok(())
+    }
+
+    fn timers(emulator: write emulator::State) -> Result<void, u32> {
+        emulator.memory.timer_counter[0] = 0x1234
+        memory::io_store16(emulator.memory, timers::BASE + 2, 0xabcd)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, 0x04000101)), 0x12, 1161)?
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, 0x04000100), 0xabcd1234, 1162)?
+        assertions::equal(bus::read32(emulator, 0x04000100), 0xabcd1234, 1163)?
+        assertions::equal(u32.from(bus::read8(emulator, 0x04000101)), 0x12, 1164)?
+        emulator.memory.save_kind = backup::Kind::Eeprom()
+        assertions::equal(bus::read32(emulator, 0x0d000000), 0x00010001, 1165)?
+        memory::write16(emulator.memory, 0x0d000000, 3)
+        assertions::equal(u32.from(emulator.memory.eeprom_command.length()), 1, 1166)?
+        assertions::equal(u32.from(emulator.memory.eeprom_command[0]), 1, 1167)?
+        return Ok(())
+    }
+
+    fn mapped_bytes(emulator: write emulator::State) -> Result<void, u32> {
+        let input = memory::io_read16(emulator.memory, keypad::INPUT)
+        bus::write8(emulator, memory::io_address(keypad::INPUT), 0)
+        bus::write8(emulator, memory::io_address(keypad::INPUT + 1), 0)
+        memory::write8(emulator.memory, memory::io_address(keypad::INPUT), 0)
+        assertions::equal(u32.from(memory::io_read16(emulator.memory, keypad::INPUT)), u32.from(input), 1168)?
+        memory::write8(emulator.memory, memory::io_address(keypad::CONTROL + 1), 0x40)
+        memory::write8(emulator.memory, memory::io_address(keypad::CONTROL), 0xff)
+        assertions::equal(u32.from(emulator.memory.keypad_control), 0x40ff, 1169)?
+        memory::write32(emulator.memory, memory::io_address(keypad::INPUT), 0xc000ffff)
+        assertions::equal(u32.from(emulator.memory.keypad_control), 0xc000, 1170)?
+        memory::write8(emulator.memory, memory::io_address(audio::MASTER_CONTROL), 128)
+        assertions::equal(u32.from(emulator.memory.audio_events[0].width), 1, 1171)?
+        memory::write16(emulator.memory, 0x04000220, 0x5678)
+        assertions::equal(u32.from(bus::read16(emulator, 0x04000220)), 0x5678, 1172)?
+        return Ok(())
+    }
+}

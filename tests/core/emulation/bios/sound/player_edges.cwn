@@ -1,0 +1,102 @@
+fn test_music_player_edges(emulator: write emulator::State) -> u32 {
+    let result = player_tests::run(emulator)
+    bios::hard_reset(emulator)
+    return match result {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module player_tests {
+    const AREA: u32 = 0x02001000
+    const PLAYER: u32 = 0x02002000
+    const TRACKS: u32 = 0x02003000
+    const SONG: u32 = 0x02004000
+
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        rejected_open(emulator)?
+        limited_tracks(emulator)?
+        rejected_commands(emulator)?
+        priority(emulator)?
+        return track_chain(emulator)
+    }
+
+    fn rejected_open(emulator: write emulator::State) -> Result<void, u32> {
+        let areas: [u32; 4] = [0, AREA, AREA, AREA]
+        let players: [u32; 4] = [PLAYER, 0, PLAYER, PLAYER]
+        let tracks: [u32; 4] = [TRACKS, TRACKS, 0, TRACKS]
+        let counts: [u32; 4] = [2, 2, 2, 0]
+        for index in 0..4 {
+            bios::hard_reset(emulator)
+            memory::write32(emulator.memory, bios::sound::WORK_AREA_POINTER, areas[index])
+            memory::write32(emulator.memory, AREA, bios::sound::DRIVER_READY)
+            memory::write32(emulator.memory, PLAYER + 52, 0x12345678)
+            emulator.cpu.registers[0] = players[index]
+            emulator.cpu.registers[1] = tracks[index]
+            emulator.cpu.registers[2] = counts[index]
+            bios::handle_swi(emulator, bios::call::MUSIC_OPEN)
+            assertions::equal(memory::read32(emulator.memory, emulator.cartridge, PLAYER + 52), 0x12345678, 1050)?
+        }
+        return Ok(())
+    }
+
+    fn limited_tracks(emulator: write emulator::State) -> Result<void, u32> {
+        memory::write32(emulator.memory, AREA + 32, 0x08000001)
+        memory::write32(emulator.memory, AREA + 36, 0x02005000)
+        emulator.cpu.registers[2] = 17
+        bios::handle_swi(emulator, bios::call::MUSIC_OPEN)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, PLAYER + 8)), 16, 1051)?
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, PLAYER + 56), 0x08000001, 1052)?
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, PLAYER + 60), 0x02005000, 1053)?
+        memory::write8(emulator.memory, SONG, 17)
+        emulator.cpu.registers[1] = SONG
+        bios::handle_swi(emulator, bios::call::MUSIC_START)
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, TRACKS + 15 * 80)), 192, 1054)?
+        assertions::equal(u32.from(memory::read8(emulator.memory, emulator.cartridge, TRACKS + 16 * 80)), 0, 1055)?
+        memory::write8(emulator.memory, PLAYER + 8, 17)
+        bios::handle_swi(emulator, bios::call::MUSIC_STOP)
+        return Ok(())
+    }
+
+    fn rejected_commands(emulator: write emulator::State) -> Result<void, u32> {
+        let players: [u32; 2] = [0, PLAYER]
+        for index in 0..2 {
+            memory::write32(emulator.memory, PLAYER + 52, 0)
+            for command in bios::call::MUSIC_START..bios::call::MULTIBOOT {
+                emulator.cpu.registers[0] = players[index]
+                emulator.cpu.registers[1] = SONG
+                bios::handle_swi(emulator, command)
+                assertions::equal(memory::read32(emulator.memory, emulator.cartridge, PLAYER + 52), 0, 1056)?
+            }
+        }
+        memory::write32(emulator.memory, PLAYER + 52, bios::sound::DRIVER_READY)
+        emulator.cpu.registers[1] = 0
+        bios::handle_swi(emulator, bios::call::MUSIC_START)
+        assertions::equal(memory::read32(emulator.memory, emulator.cartridge, PLAYER), SONG, 1057)?
+        return Ok(())
+    }
+
+    fn priority(emulator: write emulator::State) -> Result<void, u32> {
+        let current_song: [u32; 8] = [0, 0, SONG, SONG, SONG, SONG, SONG, SONG]
+        let track_flags: [u8; 8] = [0, 64, 64, 64, 0, 64, 64, 64]
+        let status: [u32; 8] = [0, 1, 0, 1, 0, 0x80000001, 1, 1]
+        let policy: [u8; 8] = [1, 1, 1, 1, 1, 1, 0, 1]
+        let next_priority: [u8; 8] = [1, 1, 1, 1, 1, 1, 1, 5]
+        let allowed: [u32; 8] = [1, 0, 0, 0, 1, 0, 1, 1]
+        for index in 0..8 {
+            memory::write32(emulator.memory, PLAYER, current_song[index])
+            memory::write32(emulator.memory, PLAYER + 4, status[index])
+            memory::write8(emulator.memory, PLAYER + 9, 5)
+            memory::write8(emulator.memory, PLAYER + 11, policy[index])
+            memory::write8(emulator.memory, SONG + 2, next_priority[index])
+            memory::write8(emulator.memory, TRACKS, track_flags[index])
+            assertions::equal(bits::bool_u32(bios::music_start_allowed(emulator, PLAYER, SONG)), allowed[index], 1058)?
+        }
+        memory::write32(emulator.memory, PLAYER + 44, 0)
+        assertions::equal(bits::bool_u32(bios::music_start_allowed(emulator, PLAYER, SONG)), 1, 1059)?
+        return Ok(())
+    }
+}

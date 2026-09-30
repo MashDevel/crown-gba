@@ -26,25 +26,17 @@ module cartridge {
             return Err(12)
         }
         let length = usize.from(size)
-        let allocated = host::allocate_buffer(length)
-        match move allocated {
-            Ok(buffer) => {
-                var loaded_buffer = move buffer
-                let loaded = host::read_host_file(file, loaded_buffer, length)
-                if loaded == false {
-                    return Err(14)
-                }
-                let data = words(loaded_buffer, length)
-                return Ok(Image {
-                        data: move data,
-                        length: length,
-                        mask: power_mask(length)
-                    })
-            }
-            Err(code) => {
-                return Err(13)
-            }
+        var loaded_buffer = host::allocate_buffer(length)
+        let loaded = host::read_host_file(file, loaded_buffer, length)
+        if loaded == false {
+            return Err(14)
         }
+        let data = words(loaded_buffer, length)
+        return Ok(Image {
+                data: move data,
+                length: length,
+                mask: power_mask(length)
+            })
     }
 
     fn words(buffer: host::Buffer, length: usize) -> Vec<u32> {

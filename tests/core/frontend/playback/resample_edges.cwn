@@ -1,0 +1,25 @@
+fn test_resample_edges() -> u32 {
+    var ring = app::sample_ring()
+    app::ring_write(ring, -10000.0)
+    app::ring_write(ring, 10000.0)
+    if ring.samples[0] != -1.0 || ring.samples[1] != 1.0 {
+        return 1780
+    }
+    app::prepare_resampler(ring, 32768)
+    app::retain_source_sample(ring, [123, -123])
+    ring.phase = u64.from(app::OUTPUT_RATE) - 1
+    let sample = app::filtered_source_sample(ring)
+    if sample[0] < 122.99999 || sample[0] > 123.00001 {
+        return 1781
+    }
+    if sample[1] < -123.00001 || sample[1] > -122.99999 {
+        return 1782
+    }
+    var state = app::new_native_frontend_state()
+    app::finish(state, 1)
+    app::finish(state, 2)
+    if state.code != 1 {
+        return 1783
+    }
+    return 0
+}

@@ -1,33 +1,26 @@
 fn truncate_backup_file(path: read TextView) -> u32 {
-    let created = backup::save_path(path)
-    match move created {
-        Ok(save_path) => {
-            var bytes = Vec<u8>.new()
-            for index in 0..host::buffer_length(save_path) - 1 {
-                bytes.push(host::buffer_get(save_path, index))
-            }
-            let text = match std::text::from_bytes(bytes) {
-                Ok(value) => move value
-                Err(error) => {
-                    error;
-                    return 401
-                }
-            }
-            match std::io::write_file(text, Vec<u8>.new()) {
-                Ok(value) => {
-                    value;
-                }
-                Err(error) => {
-                    error;
-                    return 402
-                }
-            }
-            return 0
-        }
-        Err(code) => {
-            return code
+    let save_path = backup::save_path(path)
+    var bytes = Vec<u8>.new()
+    for index in 0..host::buffer_length(save_path) - 1 {
+        bytes.push(host::buffer_get(save_path, index))
+    }
+    let text = match std::text::from_bytes(bytes) {
+        Ok(value) => move value
+        Err(error) => {
+            error;
+            return 401
         }
     }
+    match std::io::write_file(text, Vec<u8>.new()) {
+        Ok(value) => {
+            value;
+        }
+        Err(error) => {
+            error;
+            return 402
+        }
+    }
+    return 0
 }
 
 fn expect_host_path_encoding(path: TextView, expected: TextView) -> u32 {
@@ -70,6 +63,10 @@ fn test_host_path_encoding() -> u32 {
 }
 
 fn test_empty_save_file(path: read TextView, emulator: write emulator::State) -> u32 {
+    let errors = test_file_errors(path, emulator.memory)
+    if errors != 0 {
+        return errors
+    }
     let truncated = truncate_backup_file(path)
     if truncated != 0 {
         return truncated
@@ -130,6 +127,10 @@ fn eeprom_payload(memory: write memory::State) -> void {
 }
 
 fn test_eeprom(emulator: write emulator::State) -> u32 {
+    let boundaries = test_eeprom_boundaries()
+    if boundaries != 0 {
+        return boundaries
+    }
     emulator.memory.save_kind = backup::Kind::Eeprom()
     backup::clear_vector_to(emulator.memory.backup, 255)
     backup::eeprom_write_bit(emulator.memory, 1)

@@ -1,0 +1,71 @@
+fn test_backup_sizes(emulator: write emulator::State) -> u32 {
+    return match backup_size_tests::run(emulator.memory) {
+        Ok(value) => {
+            value;
+            0
+        }
+        Err(code) => code
+    }
+}
+
+module backup_size_tests {
+    fn run(memory: write memory::State) -> Result<void, u32> {
+        let kinds = [backup::Kind::Absent(), backup::Kind::Sram(), backup::Kind::Flash64(), backup::Kind::Flash128(), backup::Kind::Eeprom()]
+        let sizes: [usize; 5] = [0, 32768, 65536, 131072, 8192]
+        for index in 0..5 {
+            memory.save_kind = kinds[index]
+            memory.eeprom_address_bits = 14
+            assertions::equal(u32.from(backup::data_size(memory)), u32.from(sizes[index]), 1100)?
+            assertions::equal(bits::bool_u32(backup::size_valid(memory, sizes[index])), bits::bool_u32(index != 0), 1101)?
+            assertions::equal(bits::bool_u32(backup::size_valid(memory, sizes[index] + 1)), 0, 1102)?
+            if backup::kind_from_size(sizes[index]) != kinds[index] {
+                return Err(1103)
+            }
+        }
+        eeprom_image(memory, 512, 6)?
+        eeprom_image(memory, 8192, 14)?
+        read_kinds(memory)?
+        return flash_edges(memory)
+    }
+
+    fn eeprom_image(memory: write memory::State, size: usize, address_bits: usize) -> Result<void, u32> {
+        memory.save_kind = backup::Kind::Eeprom()
+        var bytes = host::allocate_buffer(size)
+        host::buffer_set(bytes, 0, 0x42)
+        host::buffer_set(bytes, size - 1, 0x81)
+        assertions::equal(backup::read_backup_file(bytes, memory), 0, 1104)?
+        assertions::equal(u32.from(memory.eeprom_address_bits), u32.from(address_bits), 1105)?
+        assertions::equal(u32.from(backup::data_size(memory)), u32.from(size), 1106)?
+        assertions::equal(u32.from(memory.backup[0]), 0x42, 1107)?
+        assertions::equal(u32.from(memory.backup[size - 1]), 0x81, 1108)?
+        assertions::equal(bits::bool_u32(backup::size_valid(memory, size)), 1, 1109)?
+        return Ok(())
+    }
+
+    fn read_kinds(memory: write memory::State) -> Result<void, u32> {
+        let kinds = [backup::Kind::Absent(), backup::Kind::Eeprom(), backup::Kind::Sram(), backup::Kind::Flash64()]
+        let expected: [u32; 4] = [255, 255, 0x42, 0x42]
+        memory.flash_id = false
+        memory.backup[0] = 0x42
+        for index in 0..4 {
+            memory.save_kind = kinds[index]
+            assertions::equal(u32.from(backup::read8(memory, memory::SAVE_START)), expected[index], 1110)?
+        }
+        memory.flash_id = true
+        assertions::equal(u32.from(backup::read8(memory, memory::SAVE_START + 2)), 255, 1111)?
+        memory.flash_id = false
+        memory.flash_state = backup::FlashState::Ready()
+        backup::flash_apply_command(memory, 0x77)
+        backup::flash_erase(memory, backup::FlashWrite {
+                offset: 0, value: 0x10
+            })
+        backup::flash_erase(memory, backup::FlashWrite {
+                offset: 0, value: 0x77
+            })
+        assertions::equal(u32.from(memory.backup[0]), 0x42, 1112)?
+        if memory.flash_state != backup::FlashState::Ready() {
+            return Err(1113)
+        }
+        return Ok(())
+    }
+}

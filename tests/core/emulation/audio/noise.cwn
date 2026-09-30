@@ -1,0 +1,30 @@
+module channel_tests {
+    fn noise() -> Result<void, u32> {
+        var noise = audio::new_noise_channel()
+        audio::noise_step(noise, 32)
+        assertions::equal(u32.from_bits(audio::noise_sample(noise)), 0, 937)?
+        audio::noise_set_envelope(noise, 0x3000)
+        audio::noise_set_control(noise, 0x8000)
+        assertions::equal(u32.from_bits(audio::noise_sample(noise)), u32.from_bits(-3), 938)?
+        audio::noise_step(noise, 31)
+        assertions::equal(u32.from(noise.lfsr), 0x7fff, 939)?
+        audio::noise_step(noise, 1)
+        assertions::equal(u32.from(noise.lfsr), 0x3fff, 940)?
+        noise.lfsr = 1
+        noise.width_7 = true
+        audio::noise_shift(noise)
+        assertions::equal(u32.from(noise.lfsr), 0x4040, 941)?
+        assertions::equal(u32.from_bits(audio::noise_sample(noise)), 3, 942)?
+        noise.envelope.volume = 0
+        audio::noise_step(noise, 64)
+        assertions::equal(u32.from_bits(audio::noise_sample(noise)), 0, 943)?
+        return noise_periods()
+    }
+
+    fn noise_periods() -> Result<void, u32> {
+        assertions::equal(u32.from(audio::noise_period(0, 0)), 32, 944)?
+        assertions::equal(u32.from(audio::noise_period(3, 2)), 12288, 945)?
+        assertions::equal(u32.from(audio::noise_period(7, 0)), 7168, 946)?
+        return assertions::equal(u32.from(audio::noise_period(8, 0)), 32, 947)
+    }
+}

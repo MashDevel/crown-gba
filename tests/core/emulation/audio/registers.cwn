@@ -1,0 +1,57 @@
+module channel_tests {
+    fn registers() -> Result<void, u32> {
+        var state = audio::new()
+        audio::apply_event(state, audio::RegisterWrite {
+                width: 1, offset: 0x84, value: 0x80
+            })
+        assertions::equal(bits::bool_u32(state.master_enabled), 1, 990)?
+        audio::apply_event(state, audio::RegisterWrite {
+                width: 1, offset: 0x69, value: 0xf0
+            })
+        audio::apply_event(state, audio::RegisterWrite {
+                width: 2, offset: 0x6c, value: 0x8400
+            })
+        assertions::equal(bits::bool_u32(state.pulse2.control.enabled), 1, 991)?
+        assertions::equal(u32.from(state.pulse2.envelope.volume), 15, 992)?
+        audio::apply_event(state, audio::RegisterWrite {
+                width: 4, offset: 0x90, value: 0x12345678
+            })
+        assertions::equal(u32.from(audio::read16(state, 0x90)), 0x5678, 993)?
+        assertions::equal(u32.from(audio::read16(state, 0x92)), 0x1234, 994)?
+        return register_boundaries(state)
+    }
+
+    fn register_boundaries(state: write audio::State) -> Result<void, u32> {
+        audio::write8(state, audio::REGISTER_BASE - 1, 255)
+        audio::write8(state, audio::REGISTER_END, 255)
+        audio::write16(state, 0x66, 65535)
+        audio::write16(state, 0x76, 65535)
+        audio::write16(state, 0x86, 65535)
+        audio::write16(state, audio::REGISTER_END, 65535)
+        assertions::equal(u32.from(audio::read16(state, 0x66)), 0, 995)?
+        assertions::equal(u32.from(audio::read16(state, 0x76)), 0, 996)?
+        assertions::equal(u32.from(audio::read16(state, 0x86)), 0, 997)?
+        return fifo_registers(state)
+    }
+
+    fn fifo_registers(state: write audio::State) -> Result<void, u32> {
+        audio::write32(state, audio::FIFO_A, 0x04030201)
+        audio::write32(state, audio::FIFO_B, 0x08070605)
+        audio::fifo_tick(state.fifo_a)
+        audio::fifo_tick(state.fifo_b)
+        assertions::equal(u32.from(u8.from_bits(state.fifo_a.current_sample)), 1, 998)?
+        assertions::equal(u32.from(u8.from_bits(state.fifo_b.current_sample)), 5, 999)?
+        audio::write16(state, audio::FIFO_A + 2, 0x0a09)
+        audio::write16(state, audio::FIFO_B + 2, 0x0c0b)
+        audio::write_control_h(state, audio::FIFO_A_RESET | audio::FIFO_B_RESET)
+        assertions::equal(u32.from(state.fifo_a.length), 0, 1000)?
+        assertions::equal(u32.from(state.fifo_b.length), 0, 1001)?
+        audio::fifo_tick(state.fifo_a)
+        audio::fifo_tick(state.fifo_b)
+        assertions::equal(u32.from(u8.from_bits(state.fifo_a.current_sample)), 2, 1002)?
+        assertions::equal(u32.from(u8.from_bits(state.fifo_b.current_sample)), 6, 1003)?
+        audio::write_master(state, 0)
+        assertions::equal(bits::bool_u32(state.pulse2.control.enabled), 0, 1004)?
+        return Ok(())
+    }
+}
