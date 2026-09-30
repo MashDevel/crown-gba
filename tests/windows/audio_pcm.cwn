@@ -1,0 +1,77 @@
+module windows_tests {
+    fn audio_reserve() -> Result<void, u32> {
+        var output = platform::open_audio()?
+        var samples = Vec<i32>.new()
+        for index in 0..6144 {
+            index;
+            samples.push(0)
+        }
+        if platform::submit_audio(output, samples, 48000) == false {
+            return Err(54)
+        }
+        unsafe {
+            if output.device == 0 {
+                return Ok(())
+            }
+            if output.started || output.queued != 3072 {
+                return Err(55)
+            }
+            if platform::audio_needs_frames(output) == false {
+                return Err(56)
+            }
+        }
+        return audio_reserve_restart(output, samples)
+    }
+
+    fn audio_reserve_restart(output: write platform::Audio, samples: Vec<i32>) -> Result<void, u32> {
+        if platform::submit_audio(output, samples, 48000) == false {
+            return Err(57)
+        }
+        unsafe {
+            if output.started == false || output.queued != 6144 {
+                return Err(58)
+            }
+        }
+        if platform::audio_needs_frames(output) {
+            return Err(59)
+        }
+        return Ok(())
+    }
+
+    fn audio_pcm() -> Result<void, u32> {
+        var output = platform::open_audio()?
+        var samples = Vec<i32>.new()
+        for index in 0..1024 {
+            index;
+            samples.push(256)
+            samples.push(-256)
+        }
+        if platform::submit_audio(output, samples, 48000) == false {
+            return Err(50)
+        }
+        unsafe {
+            if output.device == 0 {
+                return Ok(())
+            }
+            if output.started || output.queued != 1024 {
+                return Err(51)
+            }
+            return audio_pcm_samples(output)
+        }
+    }
+
+    fn audio_pcm_samples(output: platform::Audio) -> Result<void, u32> {
+        unsafe {
+            let data = RawPtr<i16>.from_address(usize.from(output.headers[0]))
+            for index in 0..1024 {
+                if data.offset(index * 2).read() != 12287 {
+                    return Err(52)
+                }
+                if data.offset(index * 2 + 1).read() != -12287 {
+                    return Err(53)
+                }
+            }
+        }
+        return Ok(())
+    }
+}

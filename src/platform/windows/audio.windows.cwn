@@ -1,4 +1,10 @@
 module platform {
+    const AUDIO_BLOCK_COUNT: usize = 8
+    const AUDIO_BLOCK_FRAMES: usize = 1024
+
+    const AUDIO_START_FRAMES: usize = 4096
+    const AUDIO_TARGET_FRAMES: usize = 6144
+
     extern "c" {
         fn audio_abort() -> void = "abort"
         fn sleep(milliseconds: u32) -> void = "Sleep"
@@ -13,9 +19,16 @@ module platform {
         ring: app::SampleRing
         queued: usize
         started: bool
+        timer_active: bool
         silent: app::AudioQueue
         drop {
             close_audio_device(library, device, headers)
+            if timer_active {
+                unsafe {
+                    let end = RawPtr<fn(read u32) -> u32>.cast(std::dylib::slot(library, 9)).read()
+                    end(1)
+                }
+            }
         }
     }
 
@@ -30,7 +43,7 @@ module platform {
             if reset(device) != 0 {
                 audio_abort()
             }
-            for index in 0..4 {
+            for index in 0..AUDIO_BLOCK_COUNT {
                 if headers[index * 6 + 3] & 2 != 0 {
                     if unprepare(device, headers.as_raw().offset(index * 6), 48) != 0 {
                         audio_abort()
@@ -44,11 +57,11 @@ module platform {
     }
 
     fn open_audio() -> Result<Audio, u32> {
-        let library = win::library("winmm.dll", "waveOutOpen|waveOutPrepareHeader|waveOutUnprepareHeader|waveOutWrite|waveOutReset|waveOutClose|waveOutPause|waveOutRestart")?
+        let library = win::library("winmm.dll", "waveOutOpen|waveOutPrepareHeader|waveOutUnprepareHeader|waveOutWrite|waveOutReset|waveOutClose|waveOutPause|waveOutRestart|timeBeginPeriod|timeEndPeriod")?
         unsafe {
             var output = Audio {
                 library: move library, device: 0, headers: Vec<u64>.new(), samples: Vec<i16>.new(),
-                ring: app::sample_ring(), queued: 0, started: false, silent: app::new_audio_queue(app::OUTPUT_RATE)
+                ring: app::sample_ring(), queued: 0, started: false, timer_active: false, silent: app::new_audio_queue(app::OUTPUT_RATE)
             }
             initialize_audio(output)?
             return Ok(move output)
@@ -57,11 +70,14 @@ module platform {
 
     fn initialize_audio(output: write Audio) -> Result<void, u32> {
         unsafe {
-            for index in 0..24 {
+
+            let begin = RawPtr<fn(read u32) -> u32>.cast(std::dylib::slot(output.library, 8)).read()
+            output.timer_active = begin(1) == 0
+            for index in 0..AUDIO_BLOCK_COUNT * 6 {
                 index;
                 output.headers.push(0)
             }
-            for index in 0..8192 {
+            for index in 0..AUDIO_BLOCK_COUNT * AUDIO_BLOCK_FRAMES * 2 {
                 index;
                 output.samples.push(0)
             }
@@ -88,7 +104,7 @@ module platform {
     fn prepare_audio(output: write Audio) -> Result<void, u32> {
         unsafe {
             let prepare = RawPtr<fn(read usize, read RawPtr<u64>, read u32) -> u32>.cast(std::dylib::slot(output.library, 1)).read()
-            for index in 0..4 {
+            for index in 0..AUDIO_BLOCK_COUNT {
                 output.headers[index * 6] = win::address(RawPtr<u8>.cast(output.samples.as_raw().offset(index * 2048)))
                 output.headers[index * 6 + 1] = 4096
                 if prepare(output.device, output.headers.as_raw().offset(index * 6), 48) != 0 {
@@ -118,7 +134,7 @@ module platform {
             if audio.device == 0 {
                 return audio.silent.queued_frames >= 2048
             }
-            return audio.queued >= 2048
+            return audio.queued >= AUDIO_START_FRAMES
         }
     }
 
@@ -127,7 +143,7 @@ module platform {
             if audio.device == 0 {
                 return audio.silent.queued_frames < 3840
             }
-            return audio.queued + app::ring_frames(audio.ring) < app::audio_target_frames(1024)
+            return audio.queued + app::ring_frames(audio.ring) < AUDIO_TARGET_FRAMES
         }
     }
 
@@ -143,7 +159,7 @@ module platform {
                 return 0
             }
             audio.queued = 0
-            for index in 0..4 {
+            for index in 0..AUDIO_BLOCK_COUNT {
                 if audio.headers[index * 6 + 3] & 16 != 0 {
                     audio.queued = audio.queued + 1024
                 }

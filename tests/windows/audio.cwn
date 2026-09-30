@@ -1,8 +1,15 @@
 module windows_tests {
+    fn audio_tests() -> Result<void, u32> {
+        audio_pcm()?
+        audio_reserve()?
+        audio_recovery()?
+        return audio_output()
+    }
+
     fn audio_output() -> Result<void, u32> {
         var audio = platform::open_audio()?
         var samples = Vec<i32>.new()
-        for index in 0..8192 {
+        for index in 0..platform::AUDIO_BLOCK_COUNT * platform::AUDIO_BLOCK_FRAMES * 2 {
             index;
             samples.push(0)
         }

@@ -18,7 +18,7 @@ module platform {
 
     fn queue_audio_blocks(audio: write Audio) -> bool {
         unsafe {
-            for index in 0..4 {
+            for index in 0..AUDIO_BLOCK_COUNT {
                 if audio.headers[index * 6 + 3] & 16 == 0 && app::ring_frames(audio.ring) >= 1024 {
                     if submit_audio_block(audio, index) == false {
                         return false
@@ -45,7 +45,7 @@ module platform {
 
     fn start_audio(audio: write Audio) -> bool {
         unsafe {
-            if audio.started || audio.queued < 2048 {
+            if audio.started || audio.queued < AUDIO_START_FRAMES {
                 return true
             }
             let restart = RawPtr<fn(read usize) -> u32>.cast(std::dylib::slot(audio.library, 7)).read()

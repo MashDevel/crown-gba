@@ -54,13 +54,13 @@ module windows_tests {
             var audio = platform::Audio {
                 library: move library, device: usize.from(win::address(RawPtr<u8>.cast(device))),
                 headers: Vec<u64>.new(), samples: Vec<i16>.new(), ring: app::sample_ring(), queued: 0,
-                started: true, silent: app::new_audio_queue(app::OUTPUT_RATE)
+                started: true, timer_active: false, silent: app::new_audio_queue(app::OUTPUT_RATE)
             }
-            for index in 0..24 {
+            for index in 0..platform::AUDIO_BLOCK_COUNT * 6 {
                 index;
                 audio.headers.push(0)
             }
-            for index in 0..8192 {
+            for index in 0..platform::AUDIO_BLOCK_COUNT * platform::AUDIO_BLOCK_FRAMES * 2 {
                 index;
                 audio.samples.push(0)
             }
