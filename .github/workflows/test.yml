@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: MashDevel/crown-lang
-          ref: 7b2bb31786ff1c0fd6c3e5fc96c06617d9df02c7
+          ref: 3dd86f068a85cbde3a240034f09124e5b1bea4a6
           path: lang
           persist-credentials: false
       - name: Fetch Crown on macOS and Linux

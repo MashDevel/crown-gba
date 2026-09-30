@@ -26,7 +26,7 @@ git clone https://github.com/MashDevel/crown-gba.git gba
 cd gba
 ```
 
-This revision requires Crown’s [Windows subsystem support](https://github.com/MashDevel/crown-lang/commit/7b2bb31786ff1c0fd6c3e5fc96c06617d9df02c7), including when building on macOS or Linux. If your binary release predates that change, use it to build the current compiler checkout first. In Windows PowerShell, from a directory alongside `gba`:
+This revision requires Crown’s [Windows subsystem support](https://github.com/MashDevel/crown-lang/commit/3dd86f068a85cbde3a240034f09124e5b1bea4a6), including when building on macOS or Linux. If your binary release predates that change, use it to build the current compiler checkout first. In Windows PowerShell, from a directory alongside `gba`:
 
 ```powershell
 git clone https://github.com/MashDevel/crown-lang.git lang
