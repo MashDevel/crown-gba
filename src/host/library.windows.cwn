@@ -19,9 +19,4 @@ module win {
         }
     }
 
-    fn null() -> RawPtr<u8> {
-        unsafe {
-            return RawPtr<u8>.from_address(0)
-        }
-    }
 }

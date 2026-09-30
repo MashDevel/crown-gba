@@ -20,7 +20,7 @@ module platform {
     }
 
     fn open_window() -> Result<Window, u32> {
-        let user = win::library("user32.dll", "RegisterClassExW|CreateWindowExW|UnregisterClassW|DestroyWindow|DefWindowProcW|LoadCursorW|PeekMessageW|TranslateMessage|DispatchMessageW|IsWindow|GetForegroundWindow|GetClientRect|GetDC|ReleaseDC|ShowWindow|AdjustWindowRect|FillRect")?
+        let user = win::library("user32.dll", "RegisterClassExW|CreateWindowExW|UnregisterClassW|DestroyWindow|DefWindowProcW|LoadCursorW|PeekMessageW|TranslateMessage|DispatchMessageW|IsWindow|GetForegroundWindow|GetClientRect|GetDC|ReleaseDC|ShowWindow|AdjustWindowRect|FillRect|IsIconic")?
         let graphics = win::library("gdi32.dll", "StretchDIBits|SetStretchBltMode|GetStockObject")?
         let name = match std::wstr::new("Crown GBA") {
             Some(value) => move value,

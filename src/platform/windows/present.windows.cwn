@@ -7,6 +7,10 @@ module platform {
             if window.handle == 0 {
                 return 0
             }
+            let minimized = RawPtr<fn(read usize) -> i32>.cast(std::dylib::slot(window.user, 17)).read()
+            if minimized(window.handle) != 0 {
+                return 0
+            }
             var rect: [i32; 4] = [0, 0, 0, 0]
             let client = RawPtr<fn(read usize, read RawPtr<i32>) -> i32>.cast(std::dylib::slot(window.user, 11)).read()
             if client(window.handle, rect.as_raw()) == 0 {
@@ -38,6 +42,9 @@ module platform {
             let size = app::windows_image_dimensions(u32.from(rect[2]), u32.from(rect[3]))
             let width = i32.from(size[0])
             let height = i32.from(size[1])
+            if width == 0 || height == 0 {
+                return 0
+            }
             let info: [i32; 10] = [40, 240, -160, 2097153, 0, 153600, 0, 0, 0, 0]
             let result = draw(dc, (rect[2] - width) / 2, (rect[3] - height) / 2, width, height, 0, 0, 240, 160, pixels.as_raw(), info.as_raw(), 0, 13369376)
             return if result == 0 || result == -1 {

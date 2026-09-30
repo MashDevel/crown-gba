@@ -1,4 +1,19 @@
 module windows_tests {
+    fn minimize_restore(window: platform::Window, pixels: Vec<u32>) -> Result<void, u32> {
+        unsafe {
+            let show = RawPtr<fn(read usize, read i32) -> i32>.cast(std::dylib::slot(window.user, 14)).read()
+            show(window.handle, 6)
+            if platform::present_frame(window, pixels) != 0 {
+                return Err(13)
+            }
+            show(window.handle, 9)
+            if platform::present_frame(window, pixels) != 0 {
+                return Err(14)
+            }
+        }
+        return Ok(())
+    }
+
     fn presentation(window: platform::Window) -> Result<void, u32> {
         if platform::present_frame(window, Vec<u32>.new()) != 86 {
             return Err(10)
@@ -12,6 +27,7 @@ module windows_tests {
         if result != 0 {
             return Err(result)
         }
+        minimize_restore(window, pixels)?
         let graphics = win::library("gdi32.dll", "GetPixel")?
         unsafe {
             let acquire = RawPtr<fn(read usize) -> usize>.cast(std::dylib::slot(window.user, 12)).read()
