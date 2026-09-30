@@ -98,7 +98,7 @@ module cpu {
             if input.operation == operation::SUBTRACT_CARRY {
                 return sbc_outcome(cpu, input.left, input.right)
             }
-            return logical_outcome(0, false, true)
+            return sbc_outcome(cpu, input.right, input.left)
         }
 
         fn data_high(operation: u32, left: u32, operand: cpu::ShiftResult) -> DataOutcome {

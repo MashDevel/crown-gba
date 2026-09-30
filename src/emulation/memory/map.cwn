@@ -44,4 +44,17 @@ module memory {
     fn io_address(offset: usize) -> u32 {
         IO_START + u32.from(offset)
     }
+
+    fn vram_index(address: u32) -> usize {
+        var index = usize.from(address - memory::VRAM_START) % VRAM_WINDOW_SIZE
+        if index >= VRAM_SIZE {
+            index = index - VRAM_MIRROR_SIZE
+        }
+        return index
+    }
+
+    fn region_is_rom(region: u32) -> bool {
+        region >= memory::region::ROM_FIRST && region <= memory::region::ROM_LAST
+    }
+
 }

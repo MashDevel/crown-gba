@@ -1,0 +1,46 @@
+module instruction_tests {
+    fn thumb_alu(emulator: write emulator::State) -> Result<void, u32> {
+        let expected: [u32; 16] = [2, 5, 48, 0, 0, 10, 3, 0xc0000000, 6, 0xfffffffd, 6, 6, 7, 18, 4, 0xfffffffc]
+        for operation in 0..16 {
+            thumb_cpu(emulator)
+            emulator.cpu.registers[0] = 6
+            emulator.cpu.registers[1] = 3
+            cpu::set_flag(emulator.cpu, cpu::CARRY, true)
+            assertions::equal(cpu::thumb::execute_thumb(emulator, 0x4008 | u32.from(operation) << 6), 1, 801)?
+            assertions::equal(emulator.cpu.registers[0], expected[operation], 802 + u32.from(operation))?
+        }
+        return Ok(())
+    }
+
+    fn thumb_immediates(emulator: write emulator::State) -> Result<void, u32> {
+        let opcodes: [u32; 8] = [0x2003, 0x2803, 0x3003, 0x3803, 0x1848, 0x1a48, 0x1cc8, 0x1ec8]
+        let expected: [u32; 8] = [3, 6, 9, 3, 12, 0, 9, 3]
+        for index in 0..8 {
+            thumb_cpu(emulator)
+            emulator.cpu.registers[0] = 6
+            emulator.cpu.registers[1] = 6
+            assertions::equal(cpu::thumb::execute_thumb(emulator, opcodes[index]), 1, 820)?
+            assertions::equal(emulator.cpu.registers[0], expected[index], 821 + u32.from(index))?
+        }
+        return thumb_high(emulator)
+    }
+
+    fn thumb_high(emulator: write emulator::State) -> Result<void, u32> {
+        let expected: [u32; 3] = [9, 6, 3]
+        for operation in 0..3 {
+            thumb_cpu(emulator)
+            emulator.cpu.registers[8] = 6
+            emulator.cpu.registers[9] = 3
+            assertions::equal(cpu::thumb::execute_thumb(emulator, 0x44c8 | u32.from(operation) << 8), 1, 830)?
+            assertions::equal(emulator.cpu.registers[8], expected[operation], 831)?
+        }
+        for low in 0..2 {
+            thumb_cpu(emulator)
+            emulator.cpu.registers[0] = 0x02000100 + u32.from(low)
+            assertions::equal(cpu::thumb::execute_thumb(emulator, 0x4700), 3, 832)?
+            assertions::equal(emulator.cpu.registers[cpu::PC], 0x02000100, 833)?
+            assertions::equal(bits::bool_u32(cpu::thumb(emulator.cpu)), u32.from(low), 834)?
+        }
+        return Ok(())
+    }
+}

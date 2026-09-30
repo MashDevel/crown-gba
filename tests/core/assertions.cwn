@@ -1,0 +1,9 @@
+module assertions {
+    fn equal(actual: u32, expected: u32, code: u32) -> Result<void, u32> {
+        if actual != expected {
+            return Err(code)
+        }
+        return Ok(())
+    }
+
+}

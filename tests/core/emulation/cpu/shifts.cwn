@@ -1,0 +1,32 @@
+module instruction_tests {
+    fn shift_cases() -> Result<void, u32> {
+        let amounts: [u32; 5] = [0, 1, 31, 32, 33]
+        let results: [u32; 20] = [0x80000001, 2, 0x80000000, 0, 0, 0x80000001, 0x40000000, 1, 0, 0, 0x80000001, 0xc0000000, 0xffffffff, 0xffffffff, 0xffffffff, 0x80000001, 0xc0000000, 3, 0x80000001, 0xc0000000]
+        let carries: [bool; 20] = [true, true, false, true, false, true, true, false, true, false, true, true, false, true, true, true, true, false, true, true]
+        for index in 0..20 {
+            let shifted = cpu::register_shift(cpu::ShiftRequest {
+                    value: 0x80000001, kind: u32.from(index / 5), amount: amounts[index % 5], old_carry: true
+                })
+            assertions::equal(shifted.value, results[index], 870 + u32.from(index))?
+            assertions::equal(bits::bool_u32(shifted.carry), bits::bool_u32(carries[index]), 890 + u32.from(index))?
+        }
+        return immediate_shifts()
+    }
+
+    fn immediate_shifts() -> Result<void, u32> {
+        let expected: [u32; 4] = [1, 0, 0, 0x80000000]
+        let carries: [bool; 4] = [true, false, false, true]
+        for kind in 0..4 {
+            let shifted = cpu::immediate_shift(cpu::ShiftRequest {
+                    value: 1, kind: u32.from(kind), amount: 0, old_carry: true
+                })
+            assertions::equal(shifted.value, expected[kind], 910)?
+            assertions::equal(bits::bool_u32(shifted.carry), bits::bool_u32(carries[kind]), 911)?
+        }
+        let positive = cpu::register_shift(cpu::ShiftRequest {
+                value: 1, kind: 2, amount: 33, old_carry: true
+            })
+        assertions::equal(positive.value, 0, 912)?
+        return assertions::equal(bits::bool_u32(positive.carry), 0, 913)
+    }
+}

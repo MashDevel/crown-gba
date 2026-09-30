@@ -1,0 +1,166 @@
+module cpu {
+    module arm {
+        copy struct BlockAddresses {
+            base: u32, start: u32
+        }
+
+        struct BlockTransfer {
+            load: bool
+            preindex: bool
+            up: bool
+            force_user: bool
+            writeback: bool
+            base_register: usize
+            registers: u16
+        }
+
+        struct BlockStore {
+            base_register: usize
+            writeback: bool
+            registers: u16
+            up: bool
+            base: u32
+            register: usize
+        }
+
+        fn execute_block(emulator: write emulator::State, opcode: u32) -> u32 {
+            let transfer = block_transfer(opcode)
+            if transfer.registers == 0 {
+                return 1
+            }
+            let count = bits::count_bits_u16(transfer.registers)
+            let base = cpu::read_register(emulator.cpu, transfer.base_register)
+            let start = block_start(base, count, transfer)
+            var user_bank = false
+            if transfer.force_user {
+                user_bank = bits::bit_u16(transfer.registers, 15) == false
+            }
+            let previous_mode = cpu::mode(emulator.cpu)
+            if user_bank {
+                cpu::switch_mode(emulator.cpu, cpu::USER_MODE)
+            }
+            let loaded_pc = block_registers(emulator, transfer, BlockAddresses {
+                    base: base, start: start
+                })
+            if user_bank {
+                cpu::switch_mode(emulator.cpu, previous_mode)
+            }
+            block_finish(emulator.cpu, transfer, base)
+            let has_pc = match loaded_pc {
+                Some(value) => {
+                    if transfer.force_user {
+                        cpu::restore_spsr(emulator.cpu)
+                    }
+                    cpu::write_register(emulator.cpu, cpu::PC, value)
+                    true
+                }
+                None => false
+            }
+            if transfer.load {
+                if has_pc {
+                    return count + 4
+                }
+                return count + 2
+            }
+            return count + 1
+        }
+
+        fn block_registers(emulator: write emulator::State, transfer: BlockTransfer, addresses: BlockAddresses) -> Option<u32> {
+            var loaded_pc: Option<u32> = None()
+            var address = addresses.start
+            var register: usize = 0
+            while register < 16 {
+                if bits::bit_u16(transfer.registers, register) {
+                    if transfer.load {
+                        let value = bus::read32(emulator, address)
+                        if register == cpu::PC {
+                            loaded_pc = Some(value)
+                        } else {
+                            cpu::write_register(emulator.cpu, register, value)
+                        }
+                    } else {
+                        let store = BlockStore {
+                            base_register: transfer.base_register
+                            writeback: transfer.writeback
+                            registers: transfer.registers
+                            up: transfer.up
+                            base: addresses.base
+                            register: register
+                        }
+                        let value = block_store_value(emulator.cpu, store)
+                        bus::write32(emulator, address, value)
+                    }
+                    address = address.wrapping_add(4)
+                }
+                register = register + 1
+            }
+            loaded_pc
+        }
+
+        fn block_store_value(
+            cpu: cpu::State,
+            store: BlockStore
+        ) -> u32 {
+            if store.register == store.base_register {
+                if store.writeback {
+                    let earlier_mask = (u16.from(1) << u16.from(store.register)) - 1
+                    if store.registers & earlier_mask != 0 {
+                        let offset = bits::count_bits_u16(store.registers) * 4
+                        if store.up {
+                            return store.base.wrapping_add(offset)
+                        }
+                        return store.base.wrapping_sub(offset)
+                    }
+                }
+            }
+            return cpu::store_register(cpu, store.register)
+        }
+
+        fn block_adjusted_base(base: u32, transfer: BlockTransfer) -> u32 {
+            let offset = bits::count_bits_u16(transfer.registers) * 4
+            if transfer.up {
+                return base.wrapping_add(offset)
+            }
+            return base.wrapping_sub(offset)
+        }
+
+        fn block_transfer(opcode: u32) -> BlockTransfer {
+            return BlockTransfer {
+                load: bits::bit_u32(opcode, encoding::LOAD)
+                preindex: bits::bit_u32(opcode, encoding::PREINDEX)
+                up: bits::bit_u32(opcode, encoding::UP)
+                force_user: bits::bit_u32(opcode, encoding::FORCE_USER)
+                writeback: bits::bit_u32(opcode, encoding::WRITEBACK)
+                base_register: usize.from(opcode >> encoding::BASE_SHIFT & encoding::REGISTER_MASK)
+                registers: u16.from(opcode & 65535)
+            }
+        }
+
+        fn block_start(base: u32, count: u32, transfer: BlockTransfer) -> u32 {
+            if transfer.up {
+                if transfer.preindex {
+                    return base.wrapping_add(4)
+                }
+                return base
+            }
+            if transfer.preindex {
+                return base.wrapping_sub(count * 4)
+            }
+            return base.wrapping_sub((count - 1) * 4)
+        }
+
+        fn block_finish(cpu: write cpu::State, transfer: BlockTransfer, base: u32) -> void {
+            if transfer.writeback == false {
+                return
+            }
+            if transfer.load {
+                if bits::bit_u16(transfer.registers, transfer.base_register) {
+                    return
+                }
+            }
+            let adjusted = block_adjusted_base(base, transfer)
+            cpu::write_register(cpu, transfer.base_register, adjusted)
+            return
+        }
+    }
+}

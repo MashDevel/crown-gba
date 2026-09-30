@@ -1,0 +1,29 @@
+fn test_cpu_instructions(emulator: write emulator::State) -> u32 {
+    match instruction_tests::run(emulator) {
+        Ok(value) => {
+            value;
+            return 0
+        }
+        Err(code) => {
+            return code
+        }
+    }
+}
+
+module instruction_tests {
+    fn run(emulator: write emulator::State) -> Result<void, u32> {
+        arm_alu(emulator)?
+        thumb_alu(emulator)?
+        thumb_immediates(emulator)?
+        thumb_transfers(emulator)?
+        thumb_stack(emulator)?
+        return shift_cases()
+    }
+
+    fn thumb_cpu(emulator: write emulator::State) -> void {
+        emulator.cpu = cpu::new()
+        cpu::set_thumb(emulator.cpu, true)
+        emulator.cpu.registers[cpu::SP] = 0x02001000
+        emulator.cpu.registers[cpu::PC] = 0x02000202
+    }
+}

@@ -139,13 +139,7 @@ module timers {
         while active != 0 {
             if active & 1 != 0 {
                 let ticks = timer_ticks(memory, timer, cycles)
-                let overflows = timer_advance(memory, timer, ticks)
-                results[timer] = overflows
-                if overflows != 0 {
-                    if memory.timer_control[timer] & IRQ_ENABLE != 0 {
-                        devices::request_interrupt(memory, 3 + timer)
-                    }
-                }
+                results[timer] = step_timer(memory, timer, ticks)
             }
             active = active >> 1
             timer = timer.wrapping_add(1)
@@ -154,19 +148,21 @@ module timers {
         timer = 1
         while active != 0 {
             if active & 1 != 0 {
-                let overflows = timer_advance(memory, timer, results[timer - 1])
-                results[timer] = overflows
-                if overflows != 0 {
-                    if memory.timer_control[timer] & IRQ_ENABLE != 0 {
-                        devices::request_interrupt(memory, 3 + timer)
-                    }
-                }
+                results[timer] = step_timer(memory, timer, results[timer - 1])
             }
             active = active >> 1
             timer = timer.wrapping_add(1)
         }
         recompute_next_event(memory)
         return results
+    }
+
+    fn step_timer(memory: write memory::State, timer: usize, ticks: u32) -> u32 {
+        let overflows = timer_advance(memory, timer, ticks)
+        if overflows != 0 && memory.timer_control[timer] & IRQ_ENABLE != 0 {
+            devices::request_interrupt(memory, 3 + timer)
+        }
+        return overflows
     }
 
     fn timer_ticks(memory: write memory::State, timer: usize, cycles: u32) -> u32 {

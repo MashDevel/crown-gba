@@ -198,14 +198,19 @@ module platform {
             )
             release_object(buffer)
             let ready = app::audio_queue_push(audio.queue, frames)
-            if audio.playing == false {
-                if ready {
-                    objc_unit(audio.player, named_selector("play\0"))
-                    audio.playing = true
-                    app::audio_queue_start(audio.queue, mach_absolute_time())
-                }
-            }
+            start_native_audio(audio, ready)
             return 0
+        }
+    }
+
+    fn start_native_audio(audio: write Audio, ready: bool) -> void {
+        unsafe {
+            if audio.playing || ready == false {
+                return
+            }
+            objc_unit(audio.player, named_selector("play\0"))
+            audio.playing = true
+            app::audio_queue_start(audio.queue, mach_absolute_time())
         }
     }
 

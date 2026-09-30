@@ -210,6 +210,10 @@ fn run_frontend_tests(emulator: write emulator::State) -> u32 {
             return result
         }
     }
+    let channels = test_audio_channels()
+    if channels != 0 {
+        return channels
+    }
     return test_audio_integrity(emulator)
 }
 
@@ -225,6 +229,10 @@ fn run_loaded_tests(arguments: read Arguments, emulator: write emulator::State) 
     let core = run_cpu_bus_tests(arguments[1], emulator);
     if core != 0 {
         return core
+    }
+    let instructions = test_cpu_instructions(emulator)
+    if instructions != 0 {
+        return instructions
     }
     let storage = run_storage_audio_tests(arguments[2], emulator)
     if storage != 0 {
